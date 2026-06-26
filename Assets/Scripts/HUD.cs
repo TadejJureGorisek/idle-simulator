@@ -45,6 +45,17 @@ namespace IdleSim
             GUI.Label(new Rect(12, 114, 460, 36),
                 "Click a customer at the till (or SPACE) to ring up   •   click a shelf (or R) to restock", small);
 
+            // clock / day panel (top centre)
+            float cx = Screen.width / 2f;
+            GUI.Box(new Rect(cx - 95, 6, 190, 48), GUIContent.none);
+            GUI.Label(new Rect(cx - 85, 9, 170, 24), "DAY " + sim.Day + "      " + ClockStr(sim.Clock), mid);
+            GUI.Label(new Rect(cx - 85, 31, 170, 20), sim.IsOpen ? "OPEN" : ("CLOSED   ·   Mess " + sim.Mess), small);
+            if (!sim.IsOpen)
+            {
+                if (GUI.Button(new Rect(cx - 70, 58, 140, 30), "NEW DAY")) sim.NewDay();
+                GUI.Label(new Rect(cx - 120, 92, 240, 20), "Click trash to clean for +$" + sim.CleanReward + " each", small);
+            }
+
             // upgrades panel
             float w = 250, h = 50, x = Screen.width - w - 14, y = 12;
             GUI.Box(new Rect(x - 8, y - 8, w + 16, sim.Upgrades.Count * (h + 6) + 38), GUIContent.none);
@@ -52,6 +63,7 @@ namespace IdleSim
             y += 28;
             foreach (var u in sim.Upgrades)
             {
+                if (u.Id == "autoday" && !sim.Is247) continue; // extreme upgrade hidden until 24/7
                 string label = u.IsMaxed
                     ? u.Name + "   (MAX)"
                     : u.Name + "   Lv " + u.Level + "\n" + Money(u.CurrentCost);
@@ -66,6 +78,14 @@ namespace IdleSim
                 GUI.Box(new Rect(Screen.width / 2f - 180, 10, 360, 30), GUIContent.none);
                 GUI.Label(new Rect(Screen.width / 2f - 170, 14, 360, 24), welcome, mid);
             }
+        }
+
+        static string ClockStr(float clock)
+        {
+            float c = Mathf.Repeat(clock, 24f);
+            int h = Mathf.FloorToInt(c);
+            int m = Mathf.FloorToInt((c - h) * 60f);
+            return h.ToString("00") + ":" + m.ToString("00");
         }
 
         static readonly string[] Suffix = { "", "K", "M", "B", "T", "Qa", "Qi" };

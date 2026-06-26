@@ -37,11 +37,19 @@ namespace IdleSim
         void UpdatePositions()
         {
             line.RemoveAll(c => c == null);
-            var b = BasePos;
+            // Use the till's own axes so the queue rotates with the shop.
+            Vector3 fwd = transform.forward; fwd.y = 0; fwd.Normalize();
+            Vector3 right = transform.right; right.y = 0; right.Normalize();
+            Vector3 b = transform.position - fwd * (-queueZOffset); // in front of the till
+            b.y = queueY;
+            const int perRow = 4;
+            const float rowGap = 1.1f;
             for (int i = 0; i < line.Count; i++)
             {
-                Vector3 p = b;
-                p.z -= spacing * i;
+                int row = i / perRow;
+                int col = i % perRow;
+                if ((row & 1) == 1) col = perRow - 1 - col;                 // snake: alternate row direction
+                Vector3 p = b - fwd * (spacing * col) + right * (rowGap * row);
                 line[i].SetQueuePos(p);
             }
         }

@@ -10,7 +10,8 @@ namespace IdleSim
 
         void Update()
         {
-            if (Sim.Instance != null && Sim.Instance.Editing) return; // paused while editing
+            if (Sim.Instance == null || Sim.Instance.Editing) return; // paused while editing
+            if (!Sim.Instance.IsOpen) return;                          // closed: no new customers
             timer += Time.deltaTime;
             if (timer >= Sim.Instance.SpawnInterval)
             {

@@ -17,9 +17,39 @@ namespace IdleSim
         public CustomerSpawner Spawner;
         public Transform Entrance, Exit;
 
+        // store floor footprint — the pad AND the edit grid both derive from this, so they stay
+        // 1:1, and a future "expand floor" upgrade just changes these and calls ApplyFloorSize().
+        public float FloorWidth = 18f;
+        public float FloorDepth = 14f;
+        public Vector3 FloorCenter = new Vector3(0f, 0f, 0f);
+        public Transform Pad;
+        public Transform PadRim;
+        public Transform ShopRoot;   // parents all rotatable shop content
+        public float ShopRotation;   // whole-shop rotation in 45-degree steps (edit mode)
+
         public int ItemCost = 2;
         public int ItemPrice = 5;
         public int MaxCart = 4; // a customer buys a random 1..MaxCart products
+
+        // ---- day / shift ----
+        public enum DayState { Open, Closed }
+        public float ShiftHours = 8f;          // open hours (06:00 -> 06:00 + ShiftHours); upgrades raise to 24
+        public float ShiftRealSeconds = 1200f; // one shift's open period = 20 real minutes
+        public int CleanReward = 8;            // $ per cleaned mess
+        public DoorController Door;
+        [System.NonSerialized] public DayState State = DayState.Open;
+        [System.NonSerialized] public int Day = 1;
+        [System.NonSerialized] public float Clock = 6f; // in-game hour (6.0 = 06:00)
+        [System.NonSerialized] public int Cleaners;
+        [System.NonSerialized] public bool AutoNewDay;
+        [System.NonSerialized] public int Mess;
+        [System.NonSerialized] public int servedToday;
+        readonly List<Transform> messObjs = new List<Transform>();
+        float cleanTimer;
+
+        public bool IsOpen => State == DayState.Open;
+        public bool Is247 => ShiftHours >= 23.99f;
+        float CloseTime => 6f + ShiftHours;
 
         public int Cashiers;
         public int Restockers;
@@ -52,7 +82,16 @@ namespace IdleSim
             BuildUpgrades();
         }
 
-        void Start() { LoadLevels(); LoadLayout(); RebuildNav(); }
+        void Start()
+        {
+            LoadLevels();
+            LoadLayout();
+            RebuildNav();
+            Day = PlayerPrefs.GetInt("day", 1);
+            State = DayState.Open;
+            Clock = 6f;
+            if (Door != null) Door.SetOpen(true);
+        }
 
         void BuildUpgrades()
         {
@@ -62,6 +101,9 @@ namespace IdleSim
             Upgrades.Add(new Upgrade("fastco", "Faster Checkout", 600, 1.12f, () => { checkoutSpeedSteps++; RecalcRates(); }));
             Upgrades.Add(new Upgrade("manager", "Hire Manager", 2500, 1.15f, () => { Managers++; IncomeMult = 1.0 + 0.25 * Managers; }));
             Upgrades.Add(new Upgrade("ads", "Advertising", 3000, 1.13f, () => { adSteps++; RecalcRates(); }));
+            Upgrades.Add(new Upgrade("cleaner", "Hire Cleaner", 350, 1.20f, () => { Cleaners++; }));
+            Upgrades.Add(new Upgrade("shift", "Longer Shift +2h", 500, 1.45f, () => { ShiftHours = Mathf.Min(24f, ShiftHours + 2f); }, 8));
+            Upgrades.Add(new Upgrade("autoday", "AUTO NEW DAY", 250000, 1f, () => { AutoNewDay = true; }, 1));
         }
 
         void RecalcRates()
@@ -83,7 +125,7 @@ namespace IdleSim
             var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
             body.name = "Body";
             body.transform.SetParent(rootGO.transform, false);
-            body.transform.localScale = new Vector3(2.2f, 1.2f, 0.8f);
+            body.transform.localScale = new Vector3(1.0f, 1.2f, 2.0f); // 1x2 grid cells (1 m cells)
             body.transform.localPosition = new Vector3(0, 0.6f, 0);
             body.GetComponent<Renderer>().material.color = new Color(0.45f, 0.40f, 0.35f);
 
@@ -118,6 +160,7 @@ namespace IdleSim
         public bool Buy(Upgrade u)
         {
             if (u.IsMaxed) return false;
+            if (u.Id == "autoday" && !Is247) return false; // unlocks only at 24/7
             if (Economy.Instance.TrySpend(u.CurrentCost))
             {
                 u.Level++;
@@ -139,6 +182,7 @@ namespace IdleSim
         {
             if (Editing) return; // store paused while editing the layout
 
+            TickDay();
             HandleInput();
 
             if (Cashiers > 0)
@@ -178,6 +222,8 @@ namespace IdleSim
                 var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
                 if (Physics.Raycast(ray, out RaycastHit hit, 200f))
                 {
+                    var mess = hit.collider.GetComponentInParent<Mess>();
+                    if (mess != null) { CleanMessAt(mess.transform); return; }
                     var cust = hit.collider.GetComponentInParent<Customer>();
                     if (cust != null && cust.InLine) { Checkout.ServeFront(); return; }
                     var shelf = hit.collider.GetComponentInParent<Shelf>();
@@ -199,11 +245,101 @@ namespace IdleSim
             return Math.Min(serveRate, spawnRate) * Profit * AvgBasket;
         }
 
+        // ---- day / shift ----
+        void TickDay()
+        {
+            if (State == DayState.Open)
+            {
+                Clock += (ShiftHours / Mathf.Max(1f, ShiftRealSeconds)) * Time.deltaTime;
+                if (Clock >= CloseTime) CloseShop();
+            }
+            else if (Cleaners > 0 && Mess > 0)
+            {
+                cleanTimer += Time.deltaTime;
+                if (cleanTimer >= 1.5f / Cleaners) { cleanTimer = 0f; CleanOne(); }
+            }
+        }
+
+        void CloseShop()
+        {
+            Clock = CloseTime;
+            State = DayState.Closed;
+            if (Door != null) Door.SetOpen(false);
+            SpawnMess(Mathf.Min(25, 4 + servedToday));
+            if (AutoNewDay) NewDay();
+        }
+
+        public void NewDay()
+        {
+            Day++;
+            Clock = 6f;
+            State = DayState.Open;
+            servedToday = 0;
+            ClearMess();
+            if (Door != null) Door.SetOpen(true);
+        }
+
+        public void RecordServedToday() { servedToday++; }
+
+        void SpawnMess(int n)
+        {
+            ClearMess();
+            for (int i = 0; i < n; i++)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = "Mess";
+                go.transform.localScale = new Vector3(0.4f, 0.2f, 0.4f);
+                float x = UnityEngine.Random.Range(-FloorWidth / 2f + 1f, FloorWidth / 2f - 1f);
+                float z = UnityEngine.Random.Range(-FloorDepth / 2f + 1f, FloorDepth / 2f - 1f);
+                var local = new Vector3(FloorCenter.x + x, 0.12f, FloorCenter.z + z);
+                if (ShopRoot != null) { go.transform.SetParent(ShopRoot); go.transform.localPosition = local; }
+                else go.transform.position = local;
+                go.GetComponent<Renderer>().material.color = new Color(0.42f, 0.32f, 0.20f);
+                go.AddComponent<Mess>();
+                messObjs.Add(go.transform);
+            }
+            Mess = messObjs.Count;
+        }
+
+        void ClearMess()
+        {
+            foreach (var m in messObjs) if (m != null) Destroy(m.gameObject);
+            messObjs.Clear();
+            Mess = 0;
+        }
+
+        void CleanOne()
+        {
+            for (int i = messObjs.Count - 1; i >= 0; i--)
+            {
+                if (messObjs[i] != null)
+                {
+                    Destroy(messObjs[i].gameObject);
+                    messObjs.RemoveAt(i);
+                    Mess = messObjs.Count;
+                    Economy.Instance.Add(CleanReward);
+                    return;
+                }
+                messObjs.RemoveAt(i);
+            }
+            Mess = 0;
+        }
+
+        public void CleanMessAt(Transform t)
+        {
+            int idx = messObjs.IndexOf(t);
+            if (idx < 0) return;
+            Destroy(t.gameObject);
+            messObjs.RemoveAt(idx);
+            Mess = messObjs.Count;
+            Economy.Instance.Add(CleanReward);
+        }
+
         // ---- navigation ----
         public void RebuildNav()
         {
             Physics.SyncTransforms();
-            Nav = new NavGrid(new Vector3(-11f, 0, -8f), new Vector3(11f, 0, 8f), 0.5f);
+            Nav = new NavGrid(new Vector3(-13f, 0, -13f), new Vector3(13f, 0, 13f), 0.5f); // square, fits the shop at any rotation
             foreach (var s in Shelves)
             {
                 if (s == null) continue;
@@ -218,10 +354,33 @@ namespace IdleSim
             }
             if (Checkout != null)
             {
-                var c = Checkout.GetComponent<Collider>();
-                if (c != null) Nav.BlockBounds(c.bounds, 0.4f);
+                foreach (var c in Checkout.GetComponentsInChildren<Collider>())
+                    if (c.enabled) Nav.BlockBounds(c.bounds, 0.4f);
             }
         }
+
+        // ---- store floor ----
+        public void ApplyFloorSize()
+        {
+            if (Pad != null)
+            {
+                Pad.localScale = new Vector3(FloorWidth, 0.3f, FloorDepth);
+                Pad.localPosition = new Vector3(FloorCenter.x, -0.15f, FloorCenter.z);
+            }
+            if (PadRim != null)
+            {
+                PadRim.localScale = new Vector3(FloorWidth + 0.5f, 0.2f, FloorDepth + 0.5f);
+                PadRim.localPosition = new Vector3(FloorCenter.x, -0.22f, FloorCenter.z);
+            }
+        }
+
+        public void ApplyShopRotation()
+        {
+            if (ShopRoot != null) ShopRoot.localRotation = Quaternion.Euler(0f, ShopRotation, 0f);
+        }
+
+        Vector3 ShopLocal(Vector3 world) => ShopRoot != null ? ShopRoot.InverseTransformPoint(world) : world;
+        Vector3 ShopWorld(Vector3 local) => ShopRoot != null ? ShopRoot.TransformPoint(local) : local;
 
         // ---- edit mode ----
         public void EnterEdit()
@@ -261,9 +420,10 @@ namespace IdleSim
         public void SaveLayout()
         {
             var d = new LayoutData();
-            if (Checkout != null) d.checkout = new XZ(Checkout.transform.position);
-            foreach (var s in Shelves) if (s != null) d.shelves.Add(new XZ(s.transform.position));
-            foreach (var dv in Dividers) if (dv != null) d.dividers.Add(new XZ(dv.position));
+            d.shopRotation = ShopRotation;
+            if (Checkout != null) d.checkout = new XZ(ShopLocal(Checkout.transform.position));
+            foreach (var s in Shelves) if (s != null) d.shelves.Add(new XZ(ShopLocal(s.transform.position)));
+            foreach (var dv in Dividers) if (dv != null) d.dividers.Add(new XZ(ShopLocal(dv.position)));
             PlayerPrefs.SetString("storeLayout", JsonUtility.ToJson(d));
         }
 
@@ -275,25 +435,26 @@ namespace IdleSim
                 var d = JsonUtility.FromJson<LayoutData>(PlayerPrefs.GetString("storeLayout"));
                 if (d == null) return;
 
+                ShopRotation = d.shopRotation;
+                ApplyShopRotation();
+
                 if (Checkout != null && d.checkout != null)
                 {
-                    var p = Checkout.transform.position;
-                    p.x = d.checkout.x; p.z = d.checkout.z;
-                    Checkout.transform.position = p;
+                    float y = ShopLocal(Checkout.transform.position).y;
+                    Checkout.transform.position = ShopWorld(new Vector3(d.checkout.x, y, d.checkout.z));
                 }
 
                 while (Shelves.Count < d.shelves.Count) AddShelf(new Vector3(0, 0, 3f));
                 while (Shelves.Count > d.shelves.Count) RemoveLastShelf();
                 for (int i = 0; i < Shelves.Count && i < d.shelves.Count; i++)
                 {
-                    var p = Shelves[i].transform.position;
-                    p.x = d.shelves[i].x; p.z = d.shelves[i].z;
-                    Shelves[i].transform.position = p;
+                    float y = ShopLocal(Shelves[i].transform.position).y;
+                    Shelves[i].transform.position = ShopWorld(new Vector3(d.shelves[i].x, y, d.shelves[i].z));
                 }
 
                 foreach (var dv in Dividers) if (dv != null) Destroy(dv.gameObject);
                 Dividers.Clear();
-                foreach (var x in d.dividers) AddDivider(new Vector3(x.x, 0, x.z));
+                foreach (var x in d.dividers) AddDivider(ShopWorld(new Vector3(x.x, 0.5f, x.z)));
             }
             catch { /* corrupt layout -> keep authored default */ }
         }
@@ -303,6 +464,7 @@ namespace IdleSim
             if (Economy.Instance != null) Economy.Instance.Save(EstIncomePerSec());
             SaveLevels();
             SaveLayout();
+            PlayerPrefs.SetInt("day", Day);
             PlayerPrefs.Save();
         }
 

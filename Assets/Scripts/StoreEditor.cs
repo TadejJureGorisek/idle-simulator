@@ -9,6 +9,7 @@ namespace IdleSim
     {
         public int ShelfCost = 200;
         public int DividerCost = 40;
+        const float GridCell = 1.0f; // visual grid cell size (an NPC is a bit under one cell)
 
         Texture2D circle, circleHi;
         GUIStyle round, label, btn, box;
@@ -25,6 +26,7 @@ namespace IdleSim
             if (!Editing)
             {
                 EnsureGrid();
+                SizeGridToFloor();
                 grid.SetActive(true);
                 Sim.Instance.EnterEdit();
             }
@@ -56,11 +58,24 @@ namespace IdleSim
                 var plane = new Plane(Vector3.up, new Vector3(0, dragY, 0));
                 if (plane.Raycast(ray, out float ent))
                 {
-                    var p = ray.GetPoint(ent);
-                    p.x = Mathf.Round(p.x / 0.5f) * 0.5f;
-                    p.z = Mathf.Round(p.z / 0.5f) * 0.5f;
-                    p.y = dragY;
-                    dragging.position = p;
+                    var world = ray.GetPoint(ent);
+                    var shop = Sim.Instance.ShopRoot;
+                    if (shop != null)
+                    {
+                        var local = shop.InverseTransformPoint(world);   // snap in shop space so it
+                        local.x = Mathf.Round(local.x / 0.5f) * 0.5f;     // aligns with the rotated grid
+                        local.z = Mathf.Round(local.z / 0.5f) * 0.5f;
+                        local.y = shop.InverseTransformPoint(dragging.position).y;
+                        var w = shop.TransformPoint(local);
+                        dragging.position = new Vector3(w.x, dragY, w.z);
+                    }
+                    else
+                    {
+                        world.x = Mathf.Round(world.x / 0.5f) * 0.5f;
+                        world.z = Mathf.Round(world.z / 0.5f) * 0.5f;
+                        world.y = dragY;
+                        dragging.position = world;
+                    }
                 }
             }
 
@@ -70,6 +85,19 @@ namespace IdleSim
                 Sim.Instance.RebuildNav();
                 Sim.Instance.SaveLayout();
             }
+
+            if (Input.GetKeyDown(KeyCode.Q)) Rotate(-45f);
+            if (Input.GetKeyDown(KeyCode.E)) Rotate(45f);
+        }
+
+        void Rotate(float deg)
+        {
+            var sim = Sim.Instance;
+            if (sim == null) return;
+            sim.ShopRotation = Mathf.Repeat(sim.ShopRotation + deg, 360f);
+            sim.ApplyShopRotation();
+            sim.RebuildNav();
+            sim.SaveLayout();
         }
 
         Transform PickEditable(Collider c)
@@ -95,19 +123,31 @@ namespace IdleSim
             grid.name = "EditGrid";
             var col = grid.GetComponent<Collider>();
             if (col != null) Destroy(col);
-            grid.transform.rotation = Quaternion.Euler(90f, 0, 0);
-            grid.transform.position = new Vector3(0, 0.02f, 0);
-            grid.transform.localScale = new Vector3(22f, 16f, 1f);
+            if (Sim.Instance != null && Sim.Instance.ShopRoot != null)
+                grid.transform.SetParent(Sim.Instance.ShopRoot, false); // spin with the shop
+            grid.transform.localRotation = Quaternion.Euler(90f, 0, 0);
             var mat = new Material(Shader.Find("Unlit/Transparent"));
             mat.mainTexture = MakeGrid(32);
-            mat.mainTextureScale = new Vector2(44f, 32f); // one tile per 0.5 m cell
             grid.GetComponent<Renderer>().material = mat;
             grid.SetActive(false);
         }
 
+        // Match the grid exactly to the current store floor, so it stays 1:1 even if the floor
+        // is later resized by an upgrade. One tile per 0.5 m snap cell.
+        void SizeGridToFloor()
+        {
+            if (grid == null || Sim.Instance == null) return;
+            float w = Sim.Instance.FloorWidth, d = Sim.Instance.FloorDepth;
+            var c = Sim.Instance.FloorCenter;
+            grid.transform.localPosition = new Vector3(c.x, 0.03f, c.z);
+            grid.transform.localScale = new Vector3(w, d, 1f);
+            var mat = grid.GetComponent<Renderer>().sharedMaterial;
+            if (mat != null) mat.mainTextureScale = new Vector2(w / GridCell, d / GridCell);
+        }
+
         // ---- GUI ----
         Rect PlusRect() => new Rect(Screen.width * 0.5f - 26, Screen.height - 70, 52, 52);
-        Rect ToolbarRect() => new Rect(Screen.width * 0.5f - 175, Screen.height - 134, 350, 58);
+        Rect ToolbarRect() => new Rect(Screen.width * 0.5f - 235, Screen.height - 134, 470, 58);
 
         bool PointerOverUI()
         {
@@ -155,7 +195,10 @@ namespace IdleSim
                 if (GUI.Button(new Rect(tb.x + 10, tb.y + 32, 150, 20), "Add Divider   $" + DividerCost, btn) && e.TrySpend(DividerCost)) AddFixture(false);
                 GUI.enabled = true;
 
-                GUI.Label(new Rect(tb.x + 172, tb.y + 10, 172, 44), "Grid snap on. Drag any\nfixture to move it.\nClick ✕ when done.", label);
+                if (GUI.Button(new Rect(tb.x + 170, tb.y + 8, 50, 44), "-45°", btn)) Rotate(-45f);
+                if (GUI.Button(new Rect(tb.x + 224, tb.y + 8, 50, 44), "+45°", btn)) Rotate(45f);
+
+                GUI.Label(new Rect(tb.x + 282, tb.y + 8, 184, 46), "Rotate shop (Q / E).\nDrag a fixture to move it.\nClick ✕ when done.", label);
             }
         }
 

@@ -62,9 +62,9 @@ namespace IdleSim
         {
             if (bar == null) return;
             float r = Ratio;
-            float h = 0.1f + r * 1.4f;
-            bar.localScale = new Vector3(0.8f, h, 0.2f);
-            bar.localPosition = new Vector3(0, 0.5f + h / 2f, -0.55f);
+            float h = 0.1f + r * 0.95f;
+            bar.localScale = new Vector3(0.7f, h, 0.12f);
+            bar.localPosition = new Vector3(0, 0.25f + h / 2f, -1.05f); // front face of the 1x2 body
             if (barRend != null) barRend.material.color = Color.Lerp(Empty, Full, r);
         }
     }

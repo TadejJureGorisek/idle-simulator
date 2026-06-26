@@ -17,6 +17,7 @@ namespace IdleSim
     [Serializable]
     public class LayoutData
     {
+        public float shopRotation;
         public XZ checkout;
         public List<XZ> shelves = new List<XZ>();
         public List<XZ> dividers = new List<XZ>();

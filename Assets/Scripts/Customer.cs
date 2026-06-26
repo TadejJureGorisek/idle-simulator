@@ -90,16 +90,11 @@ namespace IdleSim
                     break;
 
                 case St.ToQueue:
-                    if (Advance(ghost))
-                    {
-                        var pos = transform.position; pos.x = queuePos.x; transform.position = pos;
-                        state = St.InLine;
-                    }
+                    if (Advance(ghost)) state = St.InLine;
                     break;
 
                 case St.InLine:
-                    Vector3 t = ghost ? Flat(queuePos) : LaneTarget();
-                    transform.position = Vector3.MoveTowards(transform.position, t, Speed * Time.deltaTime);
+                    transform.position = MoveOrtho(transform.position, queuePos, Speed * Time.deltaTime);
                     break;
 
                 case St.Leaving:
@@ -149,7 +144,16 @@ namespace IdleSim
 
         Vector3 Flat(Vector3 p) { p.y = transform.position.y; return p; }
 
-        Vector3 LaneTarget() { var p = queuePos; p.x = transform.position.x; p.y = transform.position.y; return p; }
+        // Move toward the queue slot orthogonally: settle the row depth (z) first, then step to
+        // the side (x). So when the line wraps, customers shuffle forward then side-step into the
+        // new row instead of cutting diagonally across (or off) the floor.
+        Vector3 MoveOrtho(Vector3 cur, Vector3 target, float maxDist)
+        {
+            target.y = cur.y;
+            if (Mathf.Abs(target.z - cur.z) > 0.02f)
+                return Vector3.MoveTowards(cur, new Vector3(cur.x, cur.y, target.z), maxDist);
+            return Vector3.MoveTowards(cur, target, maxDist);
+        }
 
         bool FollowPath()
         {
@@ -165,6 +169,7 @@ namespace IdleSim
         {
             Economy.Instance.Add(Sim.Instance.Profit * collected); // pay for everything in the basket
             Economy.Instance.RecordServed();
+            Sim.Instance.RecordServedToday();
             GoLeave(false);
         }
 
