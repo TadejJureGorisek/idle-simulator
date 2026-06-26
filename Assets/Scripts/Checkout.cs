@@ -3,14 +3,18 @@ using UnityEngine;
 
 namespace IdleSim
 {
-    // Holds the queue and rings up the first customer who has actually arrived at the till.
+    // Holds the queue and rings up the first customer who has arrived at the till. The queue
+    // is computed from the checkout's own transform, so moving the checkout moves the queue.
     public class Checkout : MonoBehaviour
     {
         readonly List<Customer> line = new List<Customer>();
-        public Vector3 basePos;
+        public float queueY = 0.35f;
+        public float queueZOffset = -1.1f;
         public float spacing = 1.1f;
 
         public int LineCount => line.Count;
+
+        Vector3 BasePos => new Vector3(transform.position.x, queueY, transform.position.z + queueZOffset);
 
         public void Join(Customer c)
         {
@@ -28,12 +32,15 @@ namespace IdleSim
             UpdatePositions();
         }
 
+        public void RefreshQueue() => UpdatePositions();
+
         void UpdatePositions()
         {
             line.RemoveAll(c => c == null);
+            var b = BasePos;
             for (int i = 0; i < line.Count; i++)
             {
-                Vector3 p = basePos;
+                Vector3 p = b;
                 p.z -= spacing * i;
                 line[i].SetQueuePos(p);
             }

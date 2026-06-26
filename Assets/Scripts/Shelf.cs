@@ -15,6 +15,17 @@ namespace IdleSim
 
         public float Ratio => Capacity > 0 ? (float)Stock / Capacity : 0f;
 
+        void Awake()
+        {
+            // In an authored/saved scene the private bar ref isn't serialized, so re-find it.
+            if (bar == null)
+            {
+                var t = transform.Find("StockBar");
+                if (t != null) { bar = t; barRend = t.GetComponent<Renderer>(); }
+            }
+            UpdateVisual();
+        }
+
         public void Init()
         {
             var b = GameObject.CreatePrimitive(PrimitiveType.Cube);

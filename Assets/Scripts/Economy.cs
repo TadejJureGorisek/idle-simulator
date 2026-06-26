@@ -23,6 +23,7 @@ namespace IdleSim
         {
             if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
+            Load();
         }
 
         public void Add(double amt) { Money += amt; TotalEarned += amt; }

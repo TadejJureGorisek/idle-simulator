@@ -1,8 +1,11 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace IdleSim
 {
-    // Walks in, grabs an item from a stocked shelf, queues at the till, gets rung up, leaves.
+    // Grid-routed (straight lines, 90-degree turns, avoids fixtures), wants a random 1..MaxCart
+    // products, collects them from shelves, queues, pays for all of them, leaves. Overlaps other
+    // customers. Ghost/escape logic keeps it from ever getting trapped by edits.
     public class Customer : MonoBehaviour
     {
         enum St { ToShelf, ToQueue, InLine, Leaving }
@@ -10,62 +13,157 @@ namespace IdleSim
         St state;
         const float Speed = 3.2f;
         Shelf target;
-        Vector3 dest;
+        int wanted;
+        int collected;
         Vector3 queuePos;
+        Vector3 dest;
+        List<Vector3> path;
+        int pathIndex;
+        bool ghosting;
+        bool escaping;
 
         public bool InLine => state == St.InLine;
 
         public void Begin()
         {
+            wanted = Random.Range(1, Sim.Instance.MaxCart + 1); // buy 1 or more products
+            collected = 0;
             target = Sim.Instance.GetStockedShelf();
             if (target == null) { GoLeave(true); return; }
             state = St.ToShelf;
-            dest = FrontOf(target.transform);
+            SetPath(FrontOf(target.transform));
         }
 
         Vector3 FrontOf(Transform t)
         {
-            var p = t.position;
-            p.z -= 1.2f;
-            p.y = transform.position.y;
-            return p;
+            var p = t.position; p.z -= 1.2f; p.y = transform.position.y; return p;
         }
 
         public void SetQueuePos(Vector3 p) { queuePos = p; }
 
-        void Update()
+        void SetPath(Vector3 d)
+        {
+            dest = d;
+            var nav = Sim.Instance.Nav;
+            if (nav == null)
+            {
+                escaping = false;
+                path = new List<Vector3> { new Vector3(d.x, transform.position.y, d.z) };
+                pathIndex = 0;
+                return;
+            }
+            path = nav.FindPath(transform.position, d, transform.position.y);
+            if (path == null || path.Count == 0)
+            {
+                // Trapped: no route to the destination -> walk straight out of the store through anything.
+                escaping = true;
+                state = St.Leaving;
+                dest = Sim.Instance.Exit.position;
+                return;
+            }
+            escaping = false;
+            pathIndex = 0;
+        }
+
+        public void Repath()
         {
             switch (state)
             {
+                case St.ToShelf: if (target != null) SetPath(FrontOf(target.transform)); else GoToCheckoutOrLeave(); break;
+                case St.ToQueue: SetPath(queuePos); break;
+                case St.Leaving: SetPath(Sim.Instance.Exit.position); break;
+            }
+        }
+
+        void Update()
+        {
+            if (Sim.Instance != null && Sim.Instance.Editing) return; // frozen while editing
+
+            bool ghost = Sim.Instance != null && Sim.Instance.IsGhost;
+            if (ghosting && !ghost) { ghosting = false; if (state != St.InLine) SetPath(dest); }
+            ghosting = ghost;
+
+            switch (state)
+            {
                 case St.ToShelf:
-                    if (MoveTo(dest))
-                    {
-                        if (target != null && target.Pick())
-                        {
-                            Sim.Instance.Checkout.Join(this);
-                            state = St.ToQueue;
-                        }
-                        else GoLeave(true); // shelf emptied before we got there
-                    }
+                    if (Advance(ghost)) ArriveAtShelf();
                     break;
 
                 case St.ToQueue:
-                    if (MoveTo(queuePos)) state = St.InLine;
+                    if (Advance(ghost))
+                    {
+                        var pos = transform.position; pos.x = queuePos.x; transform.position = pos;
+                        state = St.InLine;
+                    }
                     break;
 
                 case St.InLine:
-                    MoveTo(queuePos); // shuffle forward as the line advances
+                    Vector3 t = ghost ? Flat(queuePos) : LaneTarget();
+                    transform.position = Vector3.MoveTowards(transform.position, t, Speed * Time.deltaTime);
                     break;
 
                 case St.Leaving:
-                    if (MoveTo(dest)) Destroy(gameObject);
+                    if (Advance(ghost)) Destroy(gameObject);
                     break;
             }
         }
 
+        void ArriveAtShelf()
+        {
+            int want = wanted - collected;
+            for (int i = 0; i < want; i++)
+            {
+                if (target != null && target.Pick()) collected++;
+                else break; // shelf ran dry
+            }
+
+            if (collected >= wanted) { GoToCheckoutOrLeave(); return; }
+
+            // need more and this shelf is empty -> try another stocked shelf, else go pay
+            var next = Sim.Instance.GetStockedShelf();
+            if (next != null) { target = next; state = St.ToShelf; SetPath(FrontOf(next.transform)); }
+            else GoToCheckoutOrLeave();
+        }
+
+        void GoToCheckoutOrLeave()
+        {
+            if (collected > 0)
+            {
+                Sim.Instance.Checkout.Join(this);
+                state = St.ToQueue;
+                SetPath(queuePos);
+            }
+            else GoLeave(true); // bought nothing
+        }
+
+        bool Advance(bool ghost)
+        {
+            if (ghost || escaping)
+            {
+                Vector3 t = Flat(dest);
+                transform.position = Vector3.MoveTowards(transform.position, t, Speed * Time.deltaTime);
+                return Vector3.Distance(transform.position, t) < 0.04f;
+            }
+            return FollowPath();
+        }
+
+        Vector3 Flat(Vector3 p) { p.y = transform.position.y; return p; }
+
+        Vector3 LaneTarget() { var p = queuePos; p.x = transform.position.x; p.y = transform.position.y; return p; }
+
+        bool FollowPath()
+        {
+            if (path == null || pathIndex >= path.Count) return true;
+            Vector3 wp = path[pathIndex];
+            wp.y = transform.position.y;
+            transform.position = Vector3.MoveTowards(transform.position, wp, Speed * Time.deltaTime);
+            if (Vector3.Distance(transform.position, wp) < 0.04f) pathIndex++;
+            return pathIndex >= path.Count;
+        }
+
         public void Served()
         {
-            Economy.Instance.Add(Sim.Instance.Profit);
+            Economy.Instance.Add(Sim.Instance.Profit * collected); // pay for everything in the basket
             Economy.Instance.RecordServed();
             GoLeave(false);
         }
@@ -74,15 +172,7 @@ namespace IdleSim
         {
             if (unhappy) Economy.Instance.RecordLost();
             state = St.Leaving;
-            dest = Sim.Instance.Exit.position;
-            dest.y = transform.position.y;
-        }
-
-        bool MoveTo(Vector3 p)
-        {
-            p.y = transform.position.y;
-            transform.position = Vector3.MoveTowards(transform.position, p, Speed * Time.deltaTime);
-            return Vector3.Distance(transform.position, p) < 0.05f;
+            SetPath(Sim.Instance.Exit.position);
         }
     }
 }
