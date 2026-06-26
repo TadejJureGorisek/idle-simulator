@@ -7,7 +7,6 @@ namespace IdleSim
     // Exiting rebuilds nav, saves the layout, and gives customers a brief walk-through grace.
     public class StoreEditor : MonoBehaviour
     {
-        public int ShelfCost = 200;
         public int DividerCost = 40;
         const float GridCell = 1.0f; // visual grid cell size (an NPC is a bit under one cell)
 
@@ -15,6 +14,7 @@ namespace IdleSim
         GUIStyle round, label, btn, box;
         bool ready;
         Transform dragging;
+        Transform selected;
         float dragY;
         GameObject grid;
 
@@ -45,11 +45,11 @@ namespace IdleSim
             if (Input.GetMouseButtonDown(0) && !PointerOverUI())
             {
                 var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-                if (Physics.Raycast(ray, out RaycastHit hit, 300f))
-                {
-                    dragging = PickEditable(hit.collider);
-                    if (dragging != null) dragY = dragging.position.y;
-                }
+                Transform picked = null;
+                if (Physics.Raycast(ray, out RaycastHit hit, 300f)) picked = PickEditable(hit.collider);
+                dragging = picked;
+                selected = picked; // click a fixture to select it; click empty to deselect
+                if (dragging != null) dragY = dragging.position.y;
             }
 
             if (dragging != null && Input.GetMouseButton(0))
@@ -88,6 +88,7 @@ namespace IdleSim
 
             if (Input.GetKeyDown(KeyCode.Q)) Rotate(-45f);
             if (Input.GetKeyDown(KeyCode.E)) Rotate(45f);
+            if (Input.GetKeyDown(KeyCode.R)) RotateSelected(45f);
         }
 
         void Rotate(float deg)
@@ -100,20 +101,88 @@ namespace IdleSim
             sim.SaveLayout();
         }
 
+        void RotateSelected(float deg)
+        {
+            if (selected == null || Sim.Instance == null) return;
+            selected.Rotate(0f, deg, 0f, Space.Self); // rotate the picked fixture in place
+            Sim.Instance.RebuildNav();
+            Sim.Instance.SaveLayout();
+        }
+
         Transform PickEditable(Collider c)
         {
             var sh = c.GetComponentInParent<Shelf>(); if (sh != null) return sh.transform;
             var co = c.GetComponentInParent<Checkout>(); if (co != null) return co.transform;
             var dv = c.GetComponentInParent<Divider>(); if (dv != null) return dv.transform;
+            var de = c.GetComponentInParent<Decor>(); if (de != null) return de.transform;
             return null;
         }
 
-        void AddFixture(bool shelf)
+        Vector2 catScroll;
+
+        // Place a catalog item near the shop front, then grab it for dragging.
+        void PlaceItem(CatalogItem it)
         {
-            var spot = new Vector3(0, 0, 1.5f);
-            if (shelf) Sim.Instance.AddShelf(spot); else Sim.Instance.AddDivider(spot);
-            Sim.Instance.RebuildNav();
-            Sim.Instance.SaveLayout();
+            var sim = Sim.Instance; var e = Economy.Instance;
+            Vector3 spot = sim.ShopRoot != null ? sim.ShopRoot.TransformPoint(new Vector3(0, 0, 1.5f)) : new Vector3(0, 0, 1.5f);
+            Transform t = null;
+            if (it.kind == ItemKind.Stand)
+            {
+                if (e == null || !e.TrySpend(StandCost())) return; // each stand costs more than the last
+                var sh = sim.AddStand(it, spot); if (sh != null) t = sh.transform;
+            }
+            else t = sim.AddDecor(it, spot); // decorations are free
+            if (t != null) { selected = dragging = t; dragY = t.position.y; }
+            sim.RebuildNav();
+            sim.SaveLayout();
+        }
+
+        void AddDivider()
+        {
+            var sim = Sim.Instance;
+            Vector3 spot = sim.ShopRoot != null ? sim.ShopRoot.TransformPoint(new Vector3(0, 0, 1.5f)) : new Vector3(0, 0, 1.5f);
+            var t = sim.AddDivider(spot);
+            if (t != null) { selected = dragging = t; dragY = t.position.y; }
+            sim.RebuildNav();
+            sim.SaveLayout();
+        }
+
+        // Each shelf placed makes the next pricier, so the shop grows slowly; unlocks scale too.
+        static double StandCost() => 50.0 * System.Math.Pow(1.18, Sim.Instance.Shelves.Count);
+        static double UnlockCost() => 200.0 * System.Math.Pow(1.4, Mathf.Max(0, Sim.Instance.UnlockedItems - 1));
+
+        void DrawCatalog()
+        {
+            var sim = Sim.Instance; var e = Economy.Instance;
+            if (sim == null || e == null) return;
+            const float x = 10f, y = 110f, w = 268f, h = 420f;
+            GUI.Box(new Rect(x - 4, y - 4, w + 8, h + 8), GUIContent.none, box);
+            GUI.Label(new Rect(x, y, w, 20), "CATALOG", label);
+
+            if (sim.UnlockedItems < Catalog.Items.Count)
+            {
+                double uc = UnlockCost();
+                var next = Catalog.Items[sim.UnlockedItems];
+                GUI.enabled = e.Money >= uc;
+                if (GUI.Button(new Rect(x, y + 22, w - 8, 26), "Unlock: " + next.name + "    " + ProducerEconomy.Money(uc), btn) && e.TrySpend(uc))
+                { sim.UnlockedItems++; sim.SaveLayout(); }
+                GUI.enabled = true;
+            }
+            else GUI.Label(new Rect(x, y + 24, w, 20), "All items unlocked.", label);
+
+            int cnt = Mathf.Min(sim.UnlockedItems, Catalog.Items.Count);
+            var view = new Rect(x, y + 54, w, h - 54);
+            var content = new Rect(0, 0, w - 20, cnt * 30);
+            catScroll = GUI.BeginScrollView(view, catScroll, content);
+            for (int i = 0; i < cnt; i++)
+            {
+                var it = Catalog.Items[i];
+                string lbl = it.kind == ItemKind.Stand ? it.name + "    " + ProducerEconomy.Money(StandCost()) : it.name + "    (decor)";
+                GUI.enabled = it.kind == ItemKind.Decor || e.Money >= StandCost();
+                if (GUI.Button(new Rect(0, i * 30, w - 20, 28), lbl, btn)) PlaceItem(it);
+                GUI.enabled = true;
+            }
+            GUI.EndScrollView();
         }
 
         void EnsureGrid()
@@ -156,6 +225,7 @@ namespace IdleSim
             if (Editing && ToolbarRect().Contains(m)) return true;
             if (new Rect(8, 8, 344, 150).Contains(m)) return true;                  // HUD money panel
             if (new Rect(Screen.width - 280, 4, 280, 430).Contains(m)) return true;  // HUD upgrades panel
+            if (Editing && new Rect(6, 106, 274, 428).Contains(m)) return true;      // catalog panel
             return false;
         }
 
@@ -185,20 +255,23 @@ namespace IdleSim
 
             if (Editing)
             {
+                DrawCatalog();
+
                 var tb = ToolbarRect();
                 GUI.Box(tb, GUIContent.none, box);
                 var e = Economy.Instance;
 
-                GUI.enabled = e != null && e.Money >= ShelfCost;
-                if (GUI.Button(new Rect(tb.x + 10, tb.y + 8, 150, 20), "Add Shelf   $" + ShelfCost, btn) && e.TrySpend(ShelfCost)) AddFixture(true);
                 GUI.enabled = e != null && e.Money >= DividerCost;
-                if (GUI.Button(new Rect(tb.x + 10, tb.y + 32, 150, 20), "Add Divider   $" + DividerCost, btn) && e.TrySpend(DividerCost)) AddFixture(false);
+                if (GUI.Button(new Rect(tb.x + 10, tb.y + 8, 150, 20), "Add Divider   $" + DividerCost, btn) && e.TrySpend(DividerCost)) AddDivider();
                 GUI.enabled = true;
 
-                if (GUI.Button(new Rect(tb.x + 170, tb.y + 8, 50, 44), "-45°", btn)) Rotate(-45f);
-                if (GUI.Button(new Rect(tb.x + 224, tb.y + 8, 50, 44), "+45°", btn)) Rotate(45f);
+                if (GUI.Button(new Rect(tb.x + 10, tb.y + 32, 74, 20), "-45° shop", btn)) Rotate(-45f);
+                if (GUI.Button(new Rect(tb.x + 88, tb.y + 32, 74, 20), "+45° shop", btn)) Rotate(45f);
+                GUI.enabled = selected != null;
+                if (GUI.Button(new Rect(tb.x + 170, tb.y + 8, 104, 44), "Rotate Item (R)", btn)) RotateSelected(45f);
+                GUI.enabled = true;
 
-                GUI.Label(new Rect(tb.x + 282, tb.y + 8, 184, 46), "Rotate shop (Q / E).\nDrag a fixture to move it.\nClick ✕ when done.", label);
+                GUI.Label(new Rect(tb.x + 282, tb.y + 8, 184, 46), "Pick from CATALOG (left).\nDrag to move · R rotates item.\nClick ✕ when done.", label);
             }
         }
 

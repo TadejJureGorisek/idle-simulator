@@ -13,6 +13,8 @@ namespace IdleSim
         public Transform ShelfParent;
         public List<Shelf> Shelves = new List<Shelf>();
         [System.NonSerialized] public List<Transform> Dividers = new List<Transform>();
+        [System.NonSerialized] public List<Transform> DecorItems = new List<Transform>();
+        public int UnlockedItems = 1; // catalog items 0..UnlockedItems-1 are available in edit mode
         public Checkout Checkout;
         public CustomerSpawner Spawner;
         public Transform Entrance, Exit;
@@ -116,23 +118,26 @@ namespace IdleSim
         }
 
         // ---- fixtures ----
-        public Shelf AddShelf(Vector3 pos)
+        public Shelf AddStand(CatalogItem it, Vector3 pos)
         {
-            var rootGO = new GameObject("Shelf");
-            if (ShelfParent != null) rootGO.transform.SetParent(ShelfParent);
-            var shelf = rootGO.AddComponent<Shelf>();
-
-            var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            body.name = "Body";
-            body.transform.SetParent(rootGO.transform, false);
-            body.transform.localScale = new Vector3(1.0f, 1.2f, 2.0f); // 1x2 grid cells (1 m cells)
-            body.transform.localPosition = new Vector3(0, 0.6f, 0);
-            body.GetComponent<Renderer>().material.color = new Color(0.45f, 0.40f, 0.35f);
-
-            rootGO.transform.position = pos;
-            shelf.Init();
-            Shelves.Add(shelf);
+            var go = Catalog.Build(it);
+            if (ShelfParent != null) go.transform.SetParent(ShelfParent);
+            go.transform.position = pos;
+            var shelf = go.GetComponent<Shelf>();
+            if (shelf != null) Shelves.Add(shelf);
             return shelf;
+        }
+
+        public Shelf AddShelf(Vector3 pos) => AddStand(Catalog.ById("st_basic"), pos);
+
+        public Transform AddDecor(CatalogItem it, Vector3 pos)
+        {
+            var go = Catalog.Build(it);
+            if (ShelfParent != null) go.transform.SetParent(ShelfParent);
+            pos.y = 0f;
+            go.transform.position = pos;
+            DecorItems.Add(go.transform);
+            return go.transform;
         }
 
         public void RemoveLastShelf()
@@ -176,6 +181,15 @@ namespace IdleSim
             var stocked = Shelves.FindAll(s => s != null && s.Stock > 0);
             if (stocked.Count == 0) return null;
             return stocked[UnityEngine.Random.Range(0, stocked.Count)];
+        }
+
+        public bool HasStock
+        {
+            get
+            {
+                foreach (var s in Shelves) if (s != null && s.Stock > 0) return true;
+                return false;
+            }
         }
 
         void Update()
@@ -357,6 +371,14 @@ namespace IdleSim
                 foreach (var c in Checkout.GetComponentsInChildren<Collider>())
                     if (c.enabled) Nav.BlockBounds(c.bounds, 0.4f);
             }
+
+            // there is no floor outside the pad, so confine the walkable area to it
+            float hw = FloorWidth / 2f - 0.6f, hd = FloorDepth / 2f - 0.6f;
+            Nav.KeepOnly(world =>
+            {
+                Vector3 lp = ShopRoot != null ? ShopRoot.InverseTransformPoint(world) : world;
+                return Mathf.Abs(lp.x - FloorCenter.x) <= hw && Mathf.Abs(lp.z - FloorCenter.z) <= hd;
+            });
         }
 
         // ---- store floor ----
@@ -381,6 +403,16 @@ namespace IdleSim
 
         Vector3 ShopLocal(Vector3 world) => ShopRoot != null ? ShopRoot.InverseTransformPoint(world) : world;
         Vector3 ShopWorld(Vector3 local) => ShopRoot != null ? ShopRoot.TransformPoint(local) : local;
+
+        // Clamp a world point to the (rotated) store floor, keeping its height.
+        public Vector3 ClampToFloor(Vector3 world)
+        {
+            Vector3 lp = ShopLocal(world);
+            float hw = FloorWidth / 2f - 0.6f, hd = FloorDepth / 2f - 0.6f;
+            lp.x = Mathf.Clamp(lp.x, FloorCenter.x - hw, FloorCenter.x + hw);
+            lp.z = Mathf.Clamp(lp.z, FloorCenter.z - hd, FloorCenter.z + hd);
+            return ShopWorld(lp);
+        }
 
         // ---- edit mode ----
         public void EnterEdit()
@@ -421,10 +453,21 @@ namespace IdleSim
         {
             var d = new LayoutData();
             d.shopRotation = ShopRotation;
-            if (Checkout != null) d.checkout = new XZ(ShopLocal(Checkout.transform.position));
-            foreach (var s in Shelves) if (s != null) d.shelves.Add(new XZ(ShopLocal(s.transform.position)));
-            foreach (var dv in Dividers) if (dv != null) d.dividers.Add(new XZ(ShopLocal(dv.position)));
+            d.unlocked = UnlockedItems;
+            if (Checkout != null) d.checkout = Fix(Checkout.transform);
+            foreach (var s in Shelves)
+                if (s != null) { var xz = Fix(s.transform); xz.id = s.catalogId; d.shelves.Add(xz); }
+            foreach (var dv in Dividers) if (dv != null) d.dividers.Add(Fix(dv));
+            foreach (var de in DecorItems)
+                if (de != null) { var xz = Fix(de); var dc = de.GetComponent<Decor>(); xz.id = dc != null ? dc.catalogId : ""; d.decor.Add(xz); }
             PlayerPrefs.SetString("storeLayout", JsonUtility.ToJson(d));
+        }
+
+        XZ Fix(Transform t)
+        {
+            var xz = new XZ(ShopLocal(t.position));
+            xz.rot = t.localEulerAngles.y;
+            return xz;
         }
 
         public void LoadLayout()
@@ -437,31 +480,53 @@ namespace IdleSim
 
                 ShopRotation = d.shopRotation;
                 ApplyShopRotation();
+                UnlockedItems = Mathf.Max(1, d.unlocked);
 
                 if (Checkout != null && d.checkout != null)
                 {
                     float y = ShopLocal(Checkout.transform.position).y;
                     Checkout.transform.position = ShopWorld(new Vector3(d.checkout.x, y, d.checkout.z));
+                    Checkout.transform.localRotation = Quaternion.Euler(0, d.checkout.rot, 0);
                 }
 
-                while (Shelves.Count < d.shelves.Count) AddShelf(new Vector3(0, 0, 3f));
-                while (Shelves.Count > d.shelves.Count) RemoveLastShelf();
-                for (int i = 0; i < Shelves.Count && i < d.shelves.Count; i++)
+                // shelves: clear + rebuild each from its saved catalog type
+                foreach (var s in Shelves) if (s != null) Destroy(s.gameObject);
+                Shelves.Clear();
+                foreach (var xz in d.shelves)
                 {
-                    float y = ShopLocal(Shelves[i].transform.position).y;
-                    Shelves[i].transform.position = ShopWorld(new Vector3(d.shelves[i].x, y, d.shelves[i].z));
+                    var it = Catalog.ById(string.IsNullOrEmpty(xz.id) ? "st_basic" : xz.id);
+                    var sh = AddStand(it, ShopWorld(new Vector3(xz.x, 0f, xz.z)));
+                    if (sh != null) sh.transform.localRotation = Quaternion.Euler(0, xz.rot, 0);
                 }
 
                 foreach (var dv in Dividers) if (dv != null) Destroy(dv.gameObject);
                 Dividers.Clear();
-                foreach (var x in d.dividers) AddDivider(ShopWorld(new Vector3(x.x, 0.5f, x.z)));
+                foreach (var x in d.dividers)
+                {
+                    var dv = AddDivider(ShopWorld(new Vector3(x.x, 0.5f, x.z)));
+                    dv.localRotation = Quaternion.Euler(0, x.rot, 0);
+                }
+
+                foreach (var de in DecorItems) if (de != null) Destroy(de.gameObject);
+                DecorItems.Clear();
+                if (d.decor != null)
+                    foreach (var xz in d.decor)
+                    {
+                        var de = AddDecor(Catalog.ById(xz.id), ShopWorld(new Vector3(xz.x, 0f, xz.z)));
+                        if (de != null) de.localRotation = Quaternion.Euler(0, xz.rot, 0);
+                    }
             }
             catch { /* corrupt layout -> keep authored default */ }
         }
 
         public void SaveAll()
         {
-            if (Economy.Instance != null) Economy.Instance.Save(EstIncomePerSec());
+            if (Economy.Instance != null)
+            {
+                double inc = EstIncomePerSec();
+                if (ProducerEconomy.Instance != null) inc += ProducerEconomy.Instance.IncomePerSec;
+                Economy.Instance.Save(inc);
+            }
             SaveLevels();
             SaveLayout();
             PlayerPrefs.SetInt("day", Day);

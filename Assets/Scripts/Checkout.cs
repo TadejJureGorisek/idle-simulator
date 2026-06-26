@@ -13,6 +13,7 @@ namespace IdleSim
         public float spacing = 1.1f;
 
         public int LineCount => line.Count;
+        public List<Customer> Line => line;
 
         Vector3 BasePos => new Vector3(transform.position.x, queueY, transform.position.z + queueZOffset);
 
@@ -50,6 +51,7 @@ namespace IdleSim
                 int col = i % perRow;
                 if ((row & 1) == 1) col = perRow - 1 - col;                 // snake: alternate row direction
                 Vector3 p = b - fwd * (spacing * col) + right * (rowGap * row);
+                if (Sim.Instance != null) p = Sim.Instance.ClampToFloor(p);
                 line[i].SetQueuePos(p);
             }
         }

@@ -36,7 +36,12 @@ namespace IdleSim
 
         Vector3 FrontOf(Transform t)
         {
-            var p = t.position; p.z -= 1.2f; p.y = transform.position.y; return p;
+            Vector3 fwd = t.forward; fwd.y = 0;
+            if (fwd.sqrMagnitude < 0.001f) fwd = Vector3.forward;
+            fwd.Normalize();
+            var p = t.position - fwd * 1.2f; // in front of the shelf, following its rotation
+            p.y = transform.position.y;
+            return p;
         }
 
         public void SetQueuePos(Vector3 p) { queuePos = p; }

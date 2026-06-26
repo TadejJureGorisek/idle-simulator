@@ -12,6 +12,7 @@ namespace IdleSim
         {
             if (Sim.Instance == null || Sim.Instance.Editing) return; // paused while editing
             if (!Sim.Instance.IsOpen) return;                          // closed: no new customers
+            if (!Sim.Instance.HasStock) return;                        // every shelf empty -> pause demand instead of losing customers
             timer += Time.deltaTime;
             if (timer >= Sim.Instance.SpawnInterval)
             {

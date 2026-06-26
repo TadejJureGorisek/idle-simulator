@@ -30,6 +30,15 @@ namespace IdleSim
                     blocked[x, z] = true;
         }
 
+        // Block every cell whose centre is not inside the test (e.g. the floating pad).
+        public void KeepOnly(System.Func<Vector3, bool> insideWorld)
+        {
+            for (int x = 0; x < w; x++)
+                for (int z = 0; z < h; z++)
+                    if (!blocked[x, z] && !insideWorld(CellToWorld(new Vector2Int(x, z), 0f)))
+                        blocked[x, z] = true;
+        }
+
         int WorldToX(float wx) => Mathf.FloorToInt((wx - origin.x) / cell);
         int WorldToZ(float wz) => Mathf.FloorToInt((wz - origin.z) / cell);
         bool InBounds(int x, int z) => x >= 0 && x < w && z >= 0 && z < h;

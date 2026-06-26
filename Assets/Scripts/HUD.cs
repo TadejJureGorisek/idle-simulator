@@ -14,6 +14,10 @@ namespace IdleSim
             var e = Economy.Instance;
             if (e != null && e.OfflineGain > 0.5)
                 welcome = "Welcome back  +" + Money(e.OfflineGain) + " while away";
+
+            // attach runtime overlays (works without re-running the scene builder)
+            if (GetComponent<WorldIcons>() == null) gameObject.AddComponent<WorldIcons>();
+            if (GetComponent<ProducerEconomy>() == null) gameObject.AddComponent<ProducerEconomy>();
         }
 
         void Setup()
@@ -38,7 +42,9 @@ namespace IdleSim
             // money / stats panel
             GUI.Box(new Rect(10, 10, 340, 98), GUIContent.none);
             GUI.Label(new Rect(22, 16, 326, 34), Money(e.Money), big);
-            GUI.Label(new Rect(24, 52, 326, 20), "Income  " + Money(sim.EstIncomePerSec()) + " / sec", mid);
+            double inc = sim.EstIncomePerSec();
+            if (ProducerEconomy.Instance != null) inc += ProducerEconomy.Instance.IncomePerSec;
+            GUI.Label(new Rect(24, 52, 326, 20), "Income  " + Money(inc) + " / sec", mid);
             GUI.Label(new Rect(24, 74, 326, 20),
                 "Served " + e.CustomersServed + "    Lost " + e.LostSales + "    Queue " + sim.Checkout.LineCount, small);
 
