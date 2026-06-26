@@ -1,0 +1,40 @@
+Order,Upgrade,Tier,Lever,Cost,CostGrowth,Effect
+0,Initial Stock Order,0,Stock,40,,~20 units @ $2 cost / sell $5
+1,Extra Shelf,1,Stock,120,1.10,+capacity / parallel sales
+2,Hire Cashier,1,Throughput,200,1.12,auto-checkout
+3,Hire Restocker,1,Stock,400,1.12,auto-restock
+4,Extra Checkout Lane,1,Throughput,600,1.12,+parallel checkout
+5,Hire Manager,1,Income,2500,1.15,+25% income / enables offline
+6,Expand Floor I,1,Sections,5000,1.18,+customer cap / +1 section slot
+7,Snacks Section,2,Sections,3000,1.13,first extra line
+8,Hover-Trolleys,2.5,Basket,30000,1.12,+1 item per customer
+9,Neon Storefront Sign,2.5,Demand,40000,1.12,+20% customer spawn
+10,Aisle Ambience,2.5,Experience,45000,1.10,+spend
+11,Gaming Section,2,Sections,50000,1.13,premium margin
+12,Cleaning Bots,2.5,Experience,60000,1.10,+cleanliness / rating
+13,Bakery Section,2,Sections,75000,1.13,high turnover
+14,Self-Checkout Kiosks,2.5,Throughput,80000,1.12,lanes / no wage
+15,Express Lane,2.5,Throughput,90000,1.12,fast lane
+16,Cantina / Beverages Section,2,Sections,120000,1.13,new line
+17,Free Samples Station,2.5,Basket,120000,1.12,+25% basket size
+18,Holo-Billboard Ads,2.5,Demand,150000,1.12,+35% spawn
+19,Med-Bay Section,2,Sections,180000,1.13,new line
+20,Security Droids,2.5,LossPrevention,180000,1.12,-shoplifting
+21,Cashier Academy,2.5,Throughput,200000,1.12,+30% checkout speed
+22,Bulk Supplier Contract,2.5,Supply,250000,1.13,-10% cost-of-goods
+23,Impulse-Buy Endcaps,2.5,Basket,250000,1.12,+impulse buys at checkout
+24,Appliance Section,2,Sections,250000,1.13,big-ticket / low volume
+25,Cold Storage / Freezers,2.5,LossPrevention,300000,1.12,-spoilage
+26,Exotic Pets Section,2,Sections,350000,1.13,new line
+27,Wider Aisles Remodel,2.5,Experience,400000,1.13,+concurrent shoppers
+28,Loyalty Program,2.5,Basket,500000,1.13,repeat customers / retention
+29,GalaxyNet Ad Campaign,2.5,Demand,600000,1.13,+50% spawn
+30,Surveillance Hub,2.5,LossPrevention,700000,1.13,-theft / +rating
+31,Galactic Luxury / Gems Section,2,Sections,700000,1.13,top margin
+32,Just-in-Time Logistics,2.5,Supply,800000,1.13,faster restock / -5% goods
+33,Warehouse,3,Supply,3000000,,bulk inventory -> cheap/free restock
+34,Production Line / Fabricator,3,Supply,10000000,,manufactures a category ~100% margin
+35,Hydroponics / Orbital Farm,3,Supply,25000000,,fresh produce supply
+36,Fusion Reactor / Power Plant,3,Supply,50000000,,powers automation / lowers op cost
+37,Interstellar Hypermarket,3,Expansion,100000000,,new store + brand synergy
+38,Franchise Buyout,4,Prestige,,,reset -> permanent x multiplier
