@@ -37,6 +37,17 @@ namespace IdleSim
         public void RecordServed() { CustomersServed++; }
         public void RecordLost() { LostSales++; }
 
+        // Shared K/M/B/T money formatter (used by the edit-mode catalog). Named Fmt to avoid
+        // colliding with the Money field above.
+        public static string Fmt(double v)
+        {
+            if (v < 1000) return "$" + v.ToString("0.#");
+            string[] s = { "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "De" };
+            int i = 0; double x = v;
+            while (x >= 1000 && i < s.Length - 1) { x /= 1000; i++; }
+            return "$" + x.ToString("0.00") + s[i];
+        }
+
         public void Save(double incomePerSec)
         {
             var ic = CultureInfo.InvariantCulture;

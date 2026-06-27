@@ -17,6 +17,7 @@ namespace IdleSim
         Transform selected;
         float dragY;
         GameObject grid;
+        int tool; // 0 = Move (drag fixtures), 1 = Paint floor, 2 = Erase floor
 
         bool Editing => Sim.Instance != null && Sim.Instance.Editing;
 
@@ -41,6 +42,16 @@ namespace IdleSim
         {
             if (!Editing) { dragging = null; return; }
             if (Camera.main == null) return;
+
+            if (tool != 0) // Paint / Erase floor with the active section colour
+            {
+                dragging = null;
+                if (Input.GetMouseButton(0) && !PointerOverUI()) PaintAtCursor(tool == 2);
+                if (Input.GetMouseButtonUp(0)) { Sim.Instance.RefreshAllShelfSections(); Sim.Instance.SaveLayout(); }
+                if (Input.GetKeyDown(KeyCode.Q)) Rotate(-45f);
+                if (Input.GetKeyDown(KeyCode.E)) Rotate(45f);
+                return;
+            }
 
             if (Input.GetMouseButtonDown(0) && !PointerOverUI())
             {
@@ -83,6 +94,7 @@ namespace IdleSim
             {
                 dragging = null;
                 Sim.Instance.RebuildNav();
+                Sim.Instance.RefreshAllShelfSections(); // a shelf moved onto a zone adopts it
                 Sim.Instance.SaveLayout();
             }
 
@@ -118,18 +130,29 @@ namespace IdleSim
             return null;
         }
 
+        // Paint (or erase) the floor cell under the cursor with the active section.
+        void PaintAtCursor(bool erase)
+        {
+            var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            var plane = new Plane(Vector3.up, Vector3.zero); // store floor sits at y = 0
+            if (!plane.Raycast(ray, out float ent)) return;
+            Sim.Instance.PaintFloorAtWorld(ray.GetPoint(ent), erase ? null : Sim.Instance.ActiveSection);
+        }
+
         Vector2 catScroll;
 
         // Place a catalog item near the shop front, then grab it for dragging.
         void PlaceItem(CatalogItem it)
         {
+            tool = 0; // placing switches to Move so the new item is draggable
             var sim = Sim.Instance; var e = Economy.Instance;
             Vector3 spot = sim.ShopRoot != null ? sim.ShopRoot.TransformPoint(new Vector3(0, 0, 1.5f)) : new Vector3(0, 0, 1.5f);
             Transform t = null;
             if (it.kind == ItemKind.Stand)
             {
-                if (e == null || !e.TrySpend(StandCost())) return; // each stand costs more than the last
-                var sh = sim.AddStand(it, spot); if (sh != null) t = sh.transform;
+                if (e == null || !e.TrySpend(StandCost(it))) return; // per-item price, escalating with shelves placed
+                var sh = sim.AddStand(it, spot, sim.ActiveSection);
+                if (sh != null) { t = sh.transform; sim.RefreshShelfSection(sh); }
             }
             else t = sim.AddDecor(it, spot); // decorations are free
             if (t != null) { selected = dragging = t; dragY = t.position.y; }
@@ -139,6 +162,7 @@ namespace IdleSim
 
         void AddDivider()
         {
+            tool = 0;
             var sim = Sim.Instance;
             Vector3 spot = sim.ShopRoot != null ? sim.ShopRoot.TransformPoint(new Vector3(0, 0, 1.5f)) : new Vector3(0, 0, 1.5f);
             var t = sim.AddDivider(spot);
@@ -148,7 +172,7 @@ namespace IdleSim
         }
 
         // Each shelf placed makes the next pricier, so the shop grows slowly; unlocks scale too.
-        static double StandCost() => 50.0 * System.Math.Pow(1.18, Sim.Instance.Shelves.Count);
+        static double StandCost(CatalogItem it) => it.cost * System.Math.Pow(1.18, Sim.Instance.Shelves.Count);
         static double UnlockCost() => 200.0 * System.Math.Pow(1.4, Mathf.Max(0, Sim.Instance.UnlockedItems - 1));
 
         void DrawCatalog()
@@ -159,26 +183,36 @@ namespace IdleSim
             GUI.Box(new Rect(x - 4, y - 4, w + 8, h + 8), GUIContent.none, box);
             GUI.Label(new Rect(x, y, w, 20), "CATALOG", label);
 
+            // brush section: cycles unlocked sections; tints new shelves AND the floor paint
+            var act = Sections.ById(sim.ActiveSection);
+            var prevC = GUI.color; GUI.color = act.color;
+            if (GUI.Button(new Rect(x, y + 22, w - 8, 24), "Section: " + act.name + "   >>", btn)) sim.CycleActiveSection();
+            GUI.color = prevC;
+
+            // tool: Move (drag fixtures) / Paint floor / Erase floor
+            string tname = tool == 0 ? "Move" : tool == 1 ? "Paint floor" : "Erase floor";
+            if (GUI.Button(new Rect(x, y + 50, w - 8, 24), "Tool: " + tname + "   (tap)", btn)) tool = (tool + 1) % 3;
+
             if (sim.UnlockedItems < Catalog.Items.Count)
             {
                 double uc = UnlockCost();
                 var next = Catalog.Items[sim.UnlockedItems];
                 GUI.enabled = e.Money >= uc;
-                if (GUI.Button(new Rect(x, y + 22, w - 8, 26), "Unlock: " + next.name + "    " + ProducerEconomy.Money(uc), btn) && e.TrySpend(uc))
+                if (GUI.Button(new Rect(x, y + 78, w - 8, 26), "Unlock: " + next.name + "    " + Economy.Fmt(uc), btn) && e.TrySpend(uc))
                 { sim.UnlockedItems++; sim.SaveLayout(); }
                 GUI.enabled = true;
             }
-            else GUI.Label(new Rect(x, y + 24, w, 20), "All items unlocked.", label);
+            else GUI.Label(new Rect(x, y + 80, w, 20), "All items unlocked.", label);
 
             int cnt = Mathf.Min(sim.UnlockedItems, Catalog.Items.Count);
-            var view = new Rect(x, y + 54, w, h - 54);
+            var view = new Rect(x, y + 108, w, h - 108);
             var content = new Rect(0, 0, w - 20, cnt * 30);
             catScroll = GUI.BeginScrollView(view, catScroll, content);
             for (int i = 0; i < cnt; i++)
             {
                 var it = Catalog.Items[i];
-                string lbl = it.kind == ItemKind.Stand ? it.name + "    " + ProducerEconomy.Money(StandCost()) : it.name + "    (decor)";
-                GUI.enabled = it.kind == ItemKind.Decor || e.Money >= StandCost();
+                string lbl = it.kind == ItemKind.Stand ? it.name + "    " + Economy.Fmt(StandCost(it)) : it.name + "    (decor)";
+                GUI.enabled = it.kind == ItemKind.Decor || e.Money >= StandCost(it);
                 if (GUI.Button(new Rect(0, i * 30, w - 20, 28), lbl, btn)) PlaceItem(it);
                 GUI.enabled = true;
             }
@@ -224,7 +258,7 @@ namespace IdleSim
             if (PlusRect().Contains(m)) return true;
             if (Editing && ToolbarRect().Contains(m)) return true;
             if (new Rect(8, 8, 344, 150).Contains(m)) return true;                  // HUD money panel
-            if (new Rect(Screen.width - 280, 4, 280, 430).Contains(m)) return true;  // HUD upgrades panel
+            if (new Rect(Screen.width - 290, 0, 290, 760).Contains(m)) return true;  // HUD upgrades + sections panel
             if (Editing && new Rect(6, 106, 274, 428).Contains(m)) return true;      // catalog panel
             return false;
         }

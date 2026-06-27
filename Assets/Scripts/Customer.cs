@@ -15,6 +15,7 @@ namespace IdleSim
         Shelf target;
         int wanted;
         int collected;
+        double basketValue; // $ accrued, weighted by each item's section
         Vector3 queuePos;
         Vector3 dest;
         List<Vector3> path;
@@ -28,6 +29,7 @@ namespace IdleSim
         {
             wanted = Random.Range(1, Sim.Instance.MaxCart + 1); // buy 1 or more products
             collected = 0;
+            basketValue = 0;
             target = Sim.Instance.GetStockedShelf();
             if (target == null) { GoLeave(true); return; }
             state = St.ToShelf;
@@ -113,7 +115,7 @@ namespace IdleSim
             int want = wanted - collected;
             for (int i = 0; i < want; i++)
             {
-                if (target != null && target.Pick()) collected++;
+                if (target != null && target.Pick()) { collected++; basketValue += Sim.Instance.ItemValue(target.section); }
                 else break; // shelf ran dry
             }
 
@@ -172,7 +174,7 @@ namespace IdleSim
 
         public void Served()
         {
-            Economy.Instance.Add(Sim.Instance.Profit * collected); // pay for everything in the basket
+            Economy.Instance.Add(basketValue); // pay for the basket (per-item, by section value)
             Economy.Instance.RecordServed();
             Sim.Instance.RecordServedToday();
             GoLeave(false);

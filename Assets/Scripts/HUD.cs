@@ -6,6 +6,7 @@ namespace IdleSim
     public class HUD : MonoBehaviour
     {
         GUIStyle big, mid, small, btn;
+        Texture2D swatch;
         bool init;
         string welcome;
 
@@ -17,7 +18,6 @@ namespace IdleSim
 
             // attach runtime overlays (works without re-running the scene builder)
             if (GetComponent<WorldIcons>() == null) gameObject.AddComponent<WorldIcons>();
-            if (GetComponent<ProducerEconomy>() == null) gameObject.AddComponent<ProducerEconomy>();
         }
 
         void Setup()
@@ -30,6 +30,7 @@ namespace IdleSim
             small = new GUIStyle(GUI.skin.label) { fontSize = 12 };
             small.normal.textColor = new Color(0.72f, 0.78f, 0.90f);
             btn = new GUIStyle(GUI.skin.button) { fontSize = 12, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(10, 6, 4, 4) };
+            swatch = new Texture2D(1, 1); swatch.SetPixel(0, 0, Color.white); swatch.Apply();
         }
 
         void OnGUI()
@@ -43,7 +44,6 @@ namespace IdleSim
             GUI.Box(new Rect(10, 10, 340, 98), GUIContent.none);
             GUI.Label(new Rect(22, 16, 326, 34), Money(e.Money), big);
             double inc = sim.EstIncomePerSec();
-            if (ProducerEconomy.Instance != null) inc += ProducerEconomy.Instance.IncomePerSec;
             GUI.Label(new Rect(24, 52, 326, 20), "Income  " + Money(inc) + " / sec", mid);
             GUI.Label(new Rect(24, 74, 326, 20),
                 "Served " + e.CustomersServed + "    Lost " + e.LostSales + "    Queue " + sim.Checkout.LineCount, small);
@@ -62,9 +62,10 @@ namespace IdleSim
                 GUI.Label(new Rect(cx - 120, 92, 240, 20), "Click trash to clean for +$" + sim.CleanReward + " each", small);
             }
 
-            // upgrades panel
+            // upgrades + sections panel (right)
             float w = 250, h = 50, x = Screen.width - w - 14, y = 12;
-            GUI.Box(new Rect(x - 8, y - 8, w + 16, sim.Upgrades.Count * (h + 6) + 38), GUIContent.none);
+            float secBlock = 32 + Sections.All.Count * 26;
+            GUI.Box(new Rect(x - 8, y - 8, w + 16, sim.Upgrades.Count * (h + 6) + 38 + secBlock), GUIContent.none);
             GUI.Label(new Rect(x, y, w, 22), "UPGRADES", mid);
             y += 28;
             foreach (var u in sim.Upgrades)
@@ -77,6 +78,32 @@ namespace IdleSim
                 if (GUI.Button(new Rect(x, y, w, h), label, btn)) sim.Buy(u);
                 GUI.enabled = true;
                 y += h + 6;
+            }
+
+            // store sections / departments — "common" is free, the rest unlock here
+            y += 8;
+            GUI.Label(new Rect(x, y, w, 22), "SECTIONS", mid);
+            if (GUI.Button(new Rect(x + w - 78, y - 2, 78, 22), "All +1", btn)) sim.UpgradeAllSections();
+            y += 26;
+            foreach (var s in Sections.All)
+            {
+                var c0 = GUI.color; GUI.color = s.color;
+                GUI.DrawTexture(new Rect(x, y + 4, 14, 14), swatch);
+                GUI.color = c0;
+                if (sim.IsSectionUnlocked(s.id))
+                {
+                    double uc = sim.SectionUpgradeCost(s.id);
+                    GUI.enabled = e.Money >= uc;
+                    if (GUI.Button(new Rect(x + 22, y, w - 22, 22), s.name + "  Lv " + sim.GetSectionLevel(s.id) + "    " + Money(uc), btn)) sim.UpgradeSection(s.id);
+                    GUI.enabled = true;
+                }
+                else
+                {
+                    GUI.enabled = e.Money >= s.unlockCost;
+                    if (GUI.Button(new Rect(x + 22, y, w - 22, 22), "Unlock  " + s.name + "    " + Money(s.unlockCost), btn)) sim.UnlockSection(s.id);
+                    GUI.enabled = true;
+                }
+                y += 26;
             }
 
             if (!string.IsNullOrEmpty(welcome))

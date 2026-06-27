@@ -12,8 +12,17 @@ namespace IdleSim
         public float z;
         public float rot;
         public string id;
+        public string sec;
         public XZ() { }
         public XZ(Vector3 p) { x = p.x; z = p.z; }
+    }
+
+    [Serializable]
+    public class PaintCell
+    {
+        public int i;
+        public int j;
+        public string sec;
     }
 
     [Serializable]
@@ -25,5 +34,6 @@ namespace IdleSim
         public List<XZ> shelves = new List<XZ>();
         public List<XZ> dividers = new List<XZ>();
         public List<XZ> decor = new List<XZ>();
+        public List<PaintCell> paint = new List<PaintCell>();
     }
 }

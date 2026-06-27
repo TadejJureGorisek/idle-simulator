@@ -9,6 +9,7 @@ namespace IdleSim
         public int Capacity = 10;
         public int Stock = 10;
         public string catalogId = "st_basic";
+        public string section = "common";
 
         public float Ratio => Capacity > 0 ? (float)Stock / Capacity : 0f;
 

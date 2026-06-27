@@ -13,15 +13,16 @@ namespace IdleSim
         public Vector3 size;
         public Color color;
         public int capacity;   // stands: stock capacity
+        public double cost;    // stands: base price (escalates with shelves placed); decor: free
 
-        public CatalogItem(string id, string name, ItemKind kind, string shape, Vector3 size, Color color, int cap = 0)
+        public CatalogItem(string id, string name, ItemKind kind, string shape, Vector3 size, Color color, int cap = 0, double cost = 0)
         {
-            this.id = id; this.name = name; this.kind = kind; this.shape = shape; this.size = size; this.color = color; capacity = cap;
+            this.id = id; this.name = name; this.kind = kind; this.shape = shape; this.size = size; this.color = color; capacity = cap; this.cost = cost;
         }
     }
 
     // The placeable catalog: 10 stands (functional shelves, varied footprints) + 30 decorations.
-    // Items unlock one-by-one in this order. Index 0 (Basic Shelf) is available from the start.
+    // Items unlock one-by-one in this order. Index 0 (Small Shelf) is available from the start.
     public static class Catalog
     {
         static List<CatalogItem> _items;
@@ -36,17 +37,18 @@ namespace IdleSim
         static List<CatalogItem> Build()
         {
             var L = new List<CatalogItem>();
-            // --- 10 STANDS (functional shelves; basic first = unlocked at start) ---
-            L.Add(St("st_basic", "Basic Shelf", 1, 2, 20));
-            L.Add(St("st_small", "Small Stand", 1, 1, 10));
-            L.Add(St("st_wide", "Wide Shelf", 2, 1, 20));
-            L.Add(St("st_long", "Long Aisle", 1, 3, 30));
-            L.Add(St("st_double", "Double Shelf", 2, 2, 40));
-            L.Add(St("st_big", "Big Aisle", 1, 4, 40));
-            L.Add(St("st_endcap", "End Cap", 1, 1, 16));
-            L.Add(St("st_island", "Island Display", 2, 2, 36));
-            L.Add(St("st_corner", "Corner Stand", 2, 2, 30));
-            L.Add(St("st_mega", "Mega Rack", 2, 3, 60));
+            // --- 10 STANDS (functional shelves; small first = unlocked at start) ---
+            //         id           name              w  d  cap   cost
+            L.Add(St("st_small",  "Small Shelf",    1, 1, 10,   20));  // starter, unlocked, cheapest
+            L.Add(St("st_basic",  "Basic Shelf",    1, 2, 20,   50));  // 2x1, already pricier than small
+            L.Add(St("st_wide",   "Wide Shelf",     2, 1, 20,   80));
+            L.Add(St("st_long",   "Long Aisle",     1, 3, 30,  130));
+            L.Add(St("st_double", "Double Shelf",   2, 2, 40,  200));
+            L.Add(St("st_big",    "Big Aisle",      1, 4, 40,  220));
+            L.Add(St("st_endcap", "End Cap",        1, 1, 16,   90));
+            L.Add(St("st_island", "Island Display", 2, 2, 36,  280));
+            L.Add(St("st_corner", "Corner Stand",   2, 2, 30,  240));
+            L.Add(St("st_mega",   "Mega Rack",      2, 3, 60,  450));
             // --- 30 DECOR (cosmetic) ---
             Color green = new Color(0.25f, 0.6f, 0.25f), grey = new Color(0.5f, 0.5f, 0.55f), red = new Color(0.8f, 0.3f, 0.25f);
             Color blue = new Color(0.3f, 0.5f, 0.8f), wood = new Color(0.5f, 0.38f, 0.25f), gold = new Color(0.85f, 0.7f, 0.3f), cyan = new Color(0.2f, 0.7f, 0.8f);
@@ -84,8 +86,8 @@ namespace IdleSim
         }
 
         static Vector3 V(float a, float b, float c) => new Vector3(a, b, c);
-        static CatalogItem St(string id, string name, float w, float d, int cap) =>
-            new CatalogItem(id, name, ItemKind.Stand, "stand", new Vector3(w, 1.2f, d), new Color(0.45f, 0.40f, 0.35f), cap);
+        static CatalogItem St(string id, string name, float w, float d, int cap, double cost) =>
+            new CatalogItem(id, name, ItemKind.Stand, "stand", new Vector3(w, 1.2f, d), new Color(0.45f, 0.40f, 0.35f), cap, cost);
         static CatalogItem Dc(string id, string name, string shape, Vector3 size, Color color) =>
             new CatalogItem(id, name, ItemKind.Decor, shape, size, color);
 

@@ -15,6 +15,13 @@ namespace IdleSim
         [System.NonSerialized] public List<Transform> Dividers = new List<Transform>();
         [System.NonSerialized] public List<Transform> DecorItems = new List<Transform>();
         public int UnlockedItems = 1; // catalog items 0..UnlockedItems-1 are available in edit mode
+        [System.NonSerialized] public HashSet<string> UnlockedSections = new HashSet<string> { "common" };
+        [System.NonSerialized] public Dictionary<string, int> SectionLevel = new Dictionary<string, int>(); // investment per section
+        public string ActiveSection = "common"; // floor-paint brush / section selected in edit mode
+        [System.NonSerialized] public Dictionary<int, string> FloorPaint = new Dictionary<int, string>(); // cell -> section
+        Transform floorPaintLayer;
+        readonly Dictionary<int, GameObject> floorCells = new Dictionary<int, GameObject>();
+        readonly Dictionary<string, Material> paintMats = new Dictionary<string, Material>();
         public Checkout Checkout;
         public CustomerSpawner Spawner;
         public Transform Entrance, Exit;
@@ -87,6 +94,7 @@ namespace IdleSim
         void Start()
         {
             LoadLevels();
+            LoadSections();
             LoadLayout();
             RebuildNav();
             Day = PlayerPrefs.GetInt("day", 1);
@@ -118,13 +126,13 @@ namespace IdleSim
         }
 
         // ---- fixtures ----
-        public Shelf AddStand(CatalogItem it, Vector3 pos)
+        public Shelf AddStand(CatalogItem it, Vector3 pos, string section = "common")
         {
             var go = Catalog.Build(it);
             if (ShelfParent != null) go.transform.SetParent(ShelfParent);
             go.transform.position = pos;
             var shelf = go.GetComponent<Shelf>();
-            if (shelf != null) Shelves.Add(shelf);
+            if (shelf != null) { shelf.section = section; ApplySectionColor(shelf); Shelves.Add(shelf); }
             return shelf;
         }
 
@@ -174,6 +182,184 @@ namespace IdleSim
                 return true;
             }
             return false;
+        }
+
+        // ---- sections / departments ----
+        public bool IsSectionUnlocked(string id) => UnlockedSections.Contains(id);
+
+        public bool UnlockSection(string id)
+        {
+            if (IsSectionUnlocked(id)) return false;
+            var sec = Sections.ById(id);
+            if (Economy.Instance == null || !Economy.Instance.TrySpend(sec.unlockCost)) return false;
+            UnlockedSections.Add(id);
+            SaveSections();
+            return true;
+        }
+
+        // ---- section investment / value ----
+        public int GetSectionLevel(string id) => SectionLevel.TryGetValue(id, out var l) ? l : 0;
+        public double SectionMult(string id) => Sections.ById(id).valueMult * System.Math.Pow(1.15, GetSectionLevel(id));
+        public double ItemValue(string id) => Profit * SectionMult(id);           // $ a single item of this section yields
+        public double SectionUpgradeCost(string id) => Sections.ById(id).upgradeBase * System.Math.Pow(1.15, GetSectionLevel(id));
+
+        public bool UpgradeSection(string id)
+        {
+            if (!IsSectionUnlocked(id)) return false;
+            double cost = SectionUpgradeCost(id);
+            if (Economy.Instance == null || !Economy.Instance.TrySpend(cost)) return false;
+            SectionLevel[id] = GetSectionLevel(id) + 1;
+            SaveSections();
+            return true;
+        }
+
+        // invest one level into every unlocked section you can currently afford (left -> right)
+        public void UpgradeAllSections()
+        {
+            foreach (var s in Sections.All)
+                if (IsSectionUnlocked(s.id)) UpgradeSection(s.id);
+        }
+
+        public double AvgSectionMult()
+        {
+            double sum = 0; int n = 0;
+            foreach (var s in Shelves) if (s != null) { sum += SectionMult(s.section); n++; }
+            return n > 0 ? sum / n : 1.0;
+        }
+
+        // a shelf belongs to whatever section the floor cell beneath it is painted (else "common")
+        public string SectionAt(Vector3 world)
+        {
+            if (WorldToCell(world, out int i, out int j) && FloorPaint.TryGetValue(CellKey(i, j), out var sec)) return sec;
+            return "common";
+        }
+
+        public void RefreshShelfSection(Shelf s)
+        {
+            if (s == null) return;
+            s.section = SectionAt(s.transform.position);
+            ApplySectionColor(s);
+        }
+
+        public void RefreshAllShelfSections()
+        {
+            foreach (var s in Shelves) RefreshShelfSection(s);
+        }
+
+        public void CycleActiveSection()
+        {
+            var open = Sections.All.FindAll(s => IsSectionUnlocked(s.id));
+            if (open.Count == 0) { ActiveSection = "common"; return; }
+            int idx = open.FindIndex(s => s.id == ActiveSection);
+            ActiveSection = open[(idx + 1) % open.Count].id;
+        }
+
+        public static void ApplySectionColor(Shelf s)
+        {
+            if (s == null) return;
+            var body = s.transform.Find("Body");
+            if (body == null) return;
+            var r = body.GetComponent<Renderer>();
+            if (r != null) r.material.color = Sections.ById(s.section).color;
+        }
+
+        void SaveSections()
+        {
+            foreach (var s in Sections.All)
+            {
+                PlayerPrefs.SetInt("sec_" + s.id, UnlockedSections.Contains(s.id) ? 1 : 0);
+                PlayerPrefs.SetInt("seclvl_" + s.id, GetSectionLevel(s.id));
+            }
+        }
+
+        void LoadSections()
+        {
+            UnlockedSections.Clear();
+            UnlockedSections.Add("common");
+            SectionLevel.Clear();
+            foreach (var s in Sections.All)
+            {
+                if (PlayerPrefs.GetInt("sec_" + s.id, 0) == 1) UnlockedSections.Add(s.id);
+                int lv = PlayerPrefs.GetInt("seclvl_" + s.id, 0);
+                if (lv > 0) SectionLevel[s.id] = lv;
+            }
+        }
+
+        // ---- floor painting (section zones) ----
+        int CellKey(int i, int j) => j * 1000 + i;
+
+        public bool WorldToCell(Vector3 world, out int i, out int j)
+        {
+            Vector3 local = ShopLocal(world);
+            int W = Mathf.RoundToInt(FloorWidth), D = Mathf.RoundToInt(FloorDepth);
+            i = Mathf.FloorToInt(local.x - FloorCenter.x + W / 2f);
+            j = Mathf.FloorToInt(local.z - FloorCenter.z + D / 2f);
+            return i >= 0 && i < W && j >= 0 && j < D;
+        }
+
+        Vector3 CellCenterLocal(int i, int j)
+        {
+            int W = Mathf.RoundToInt(FloorWidth), D = Mathf.RoundToInt(FloorDepth);
+            return new Vector3(FloorCenter.x - W / 2f + i + 0.5f, 0.02f, FloorCenter.z - D / 2f + j + 0.5f);
+        }
+
+        void EnsureFloorLayer()
+        {
+            if (floorPaintLayer != null) return;
+            var go = new GameObject("FloorPaint");
+            if (ShopRoot != null) go.transform.SetParent(ShopRoot, false);
+            floorPaintLayer = go.transform;
+        }
+
+        Material PaintMat(string sectionId)
+        {
+            if (!paintMats.TryGetValue(sectionId, out var m) || m == null)
+            {
+                m = new Material(Shader.Find("Sprites/Default")); // unlit, double-sided, alpha
+                var c = Sections.ById(sectionId).color;
+                m.color = new Color(c.r, c.g, c.b, 0.55f);
+                paintMats[sectionId] = m;
+            }
+            return m;
+        }
+
+        public void PaintFloorAtWorld(Vector3 world, string sectionId)
+        {
+            if (WorldToCell(world, out int i, out int j)) PaintCell(i, j, sectionId);
+        }
+
+        // sectionId == null  ->  erase the cell
+        public void PaintCell(int i, int j, string sectionId)
+        {
+            int key = CellKey(i, j);
+            if (string.IsNullOrEmpty(sectionId))
+            {
+                if (floorCells.TryGetValue(key, out var g) && g != null) Destroy(g);
+                floorCells.Remove(key);
+                FloorPaint.Remove(key);
+                return;
+            }
+            FloorPaint[key] = sectionId;
+            EnsureFloorLayer();
+            if (!floorCells.TryGetValue(key, out var cell) || cell == null)
+            {
+                cell = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                cell.name = "Cell_" + i + "_" + j;
+                var col = cell.GetComponent<Collider>(); if (col != null) Destroy(col);
+                cell.transform.SetParent(floorPaintLayer, false);
+                cell.transform.localRotation = Quaternion.Euler(90f, 0, 0);
+                cell.transform.localScale = Vector3.one;
+                cell.transform.localPosition = CellCenterLocal(i, j);
+                floorCells[key] = cell;
+            }
+            cell.GetComponent<Renderer>().sharedMaterial = PaintMat(sectionId);
+        }
+
+        void ClearFloorPaint()
+        {
+            foreach (var kv in floorCells) if (kv.Value != null) Destroy(kv.Value);
+            floorCells.Clear();
+            FloorPaint.Clear();
         }
 
         public Shelf GetStockedShelf()
@@ -256,7 +442,7 @@ namespace IdleSim
             if (Cashiers <= 0 || Restockers <= 0) return 0;
             double serveRate = 1.0 / CheckoutInterval;
             double spawnRate = 1.0 / SpawnInterval;
-            return Math.Min(serveRate, spawnRate) * Profit * AvgBasket;
+            return Math.Min(serveRate, spawnRate) * Profit * AvgBasket * AvgSectionMult();
         }
 
         // ---- day / shift ----
@@ -456,10 +642,12 @@ namespace IdleSim
             d.unlocked = UnlockedItems;
             if (Checkout != null) d.checkout = Fix(Checkout.transform);
             foreach (var s in Shelves)
-                if (s != null) { var xz = Fix(s.transform); xz.id = s.catalogId; d.shelves.Add(xz); }
+                if (s != null) { var xz = Fix(s.transform); xz.id = s.catalogId; xz.sec = s.section; d.shelves.Add(xz); }
             foreach (var dv in Dividers) if (dv != null) d.dividers.Add(Fix(dv));
             foreach (var de in DecorItems)
                 if (de != null) { var xz = Fix(de); var dc = de.GetComponent<Decor>(); xz.id = dc != null ? dc.catalogId : ""; d.decor.Add(xz); }
+            foreach (var kv in FloorPaint)
+                d.paint.Add(new PaintCell { i = kv.Key % 1000, j = kv.Key / 1000, sec = kv.Value });
             PlayerPrefs.SetString("storeLayout", JsonUtility.ToJson(d));
         }
 
@@ -495,7 +683,7 @@ namespace IdleSim
                 foreach (var xz in d.shelves)
                 {
                     var it = Catalog.ById(string.IsNullOrEmpty(xz.id) ? "st_basic" : xz.id);
-                    var sh = AddStand(it, ShopWorld(new Vector3(xz.x, 0f, xz.z)));
+                    var sh = AddStand(it, ShopWorld(new Vector3(xz.x, 0f, xz.z)), string.IsNullOrEmpty(xz.sec) ? "common" : xz.sec);
                     if (sh != null) sh.transform.localRotation = Quaternion.Euler(0, xz.rot, 0);
                 }
 
@@ -515,6 +703,12 @@ namespace IdleSim
                         var de = AddDecor(Catalog.ById(xz.id), ShopWorld(new Vector3(xz.x, 0f, xz.z)));
                         if (de != null) de.localRotation = Quaternion.Euler(0, xz.rot, 0);
                     }
+
+                ClearFloorPaint();
+                if (d.paint != null)
+                    foreach (var pc in d.paint) PaintCell(pc.i, pc.j, pc.sec);
+
+                RefreshAllShelfSections(); // shelves take the section of the floor they stand on
             }
             catch { /* corrupt layout -> keep authored default */ }
         }
@@ -524,10 +718,10 @@ namespace IdleSim
             if (Economy.Instance != null)
             {
                 double inc = EstIncomePerSec();
-                if (ProducerEconomy.Instance != null) inc += ProducerEconomy.Instance.IncomePerSec;
                 Economy.Instance.Save(inc);
             }
             SaveLevels();
+            SaveSections();
             SaveLayout();
             PlayerPrefs.SetInt("day", Day);
             PlayerPrefs.Save();

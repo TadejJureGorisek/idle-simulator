@@ -42,8 +42,8 @@ namespace IdleSim
             BuildEntryDoor(sim); // double glass door at the front edge; sets Entrance + Exit
             if (sim.Entrance != null && sim.Entrance.parent != null) sim.Entrance.parent.SetParent(shop, true);
 
-            sim.AddShelf(new Vector3(-3f, 0, 4f));
-            sim.AddShelf(new Vector3(3f, 0, 4f));
+            sim.AddStand(Catalog.ById("st_small"), new Vector3(-3f, 0, 4f)); // start with 2 small shelves
+            sim.AddStand(Catalog.ById("st_small"), new Vector3(3f, 0, 4f));
 
             BuildPlaceholders(shop);
 
