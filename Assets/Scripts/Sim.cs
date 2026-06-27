@@ -82,7 +82,7 @@ namespace IdleSim
         float autoCheckoutTimer;
         float autoRestockTimer;
 
-        public double Profit => (ItemPrice - ItemCost) * IncomeMult;
+        public double Profit => (ItemPrice - ItemCost) * IncomeMult * Franchise.Mult;
 
         void Awake()
         {
@@ -116,13 +116,52 @@ namespace IdleSim
             Upgrades.Add(new Upgrade("autoday", "AUTO NEW DAY", 250000, 1f, () => { AutoNewDay = true; }, 1));
         }
 
-        void RecalcRates()
+        public void RecalcRates()
         {
             CheckoutInterval = BaseCheckoutInterval;
             if (Cashiers > 0) CheckoutInterval = BaseCheckoutInterval / Cashiers;
             CheckoutInterval *= Mathf.Pow(0.85f, checkoutSpeedSteps);
             CheckoutInterval = Mathf.Max(0.3f, CheckoutInterval);
             SpawnInterval = Mathf.Max(0.4f, BaseSpawnInterval * Mathf.Pow(0.85f, adSteps));
+        }
+
+        // ---- franchise reset: wipe this run's shop (Economy.ResetRun handles the cash side) ----
+        public void HardResetRun(bool keepSections)
+        {
+            // customers + queue + mess
+            foreach (var c in FindObjectsByType<Customer>(FindObjectsSortMode.None)) if (c != null) Destroy(c.gameObject);
+            if (Checkout != null) Checkout.Clear();
+            foreach (var m in messObjs) if (m != null) Destroy(m.gameObject);
+            messObjs.Clear(); Mess = 0; servedToday = 0; cleanTimer = 0f;
+
+            // placed fixtures
+            foreach (var s in Shelves) if (s != null) Destroy(s.gameObject);
+            Shelves.Clear();
+            foreach (var d in DecorItems) if (d != null) Destroy(d.gameObject);
+            DecorItems.Clear();
+            foreach (var dv in Dividers) if (dv != null) Destroy(dv.gameObject);
+            Dividers.Clear();
+            ClearFloorPaint();
+
+            // upgrades + their applied effects
+            Cashiers = Restockers = Managers = Cleaners = 0;
+            checkoutSpeedSteps = 0; adSteps = 0;
+            IncomeMult = 1.0; ShiftHours = 8f; AutoNewDay = false;
+            BuildUpgrades();
+            RecalcRates();
+
+            // catalog + sections
+            UnlockedItems = 1;
+            ActiveSection = "common";
+            if (!keepSections) { UnlockedSections.Clear(); UnlockedSections.Add("common"); SectionLevel.Clear(); }
+
+            // day + orientation + starter shelves
+            Day = 1; Clock = 6f; State = DayState.Open;
+            if (Door != null) Door.SetOpen(true);
+            ShopRotation = 0f; ApplyShopRotation();
+            AddStand(Catalog.ById("st_small"), new Vector3(-3f, 0, 4f));
+            AddStand(Catalog.ById("st_small"), new Vector3(3f, 0, 4f));
+            RebuildNav();
         }
 
         // ---- fixtures ----

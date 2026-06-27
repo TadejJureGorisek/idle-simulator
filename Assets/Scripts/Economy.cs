@@ -11,6 +11,7 @@ namespace IdleSim
 
         public double Money;
         public double TotalEarned;
+        public double RunEarned;     // earned since the last franchise reset (drives Franchise Points)
         public int CustomersServed;
         public int LostSales;
         public double OfflineGain;   // for the welcome-back toast
@@ -26,7 +27,10 @@ namespace IdleSim
             Load();
         }
 
-        public void Add(double amt) { Money += amt; TotalEarned += amt; }
+        public void Add(double amt) { Money += amt; TotalEarned += amt; RunEarned += amt; }
+
+        // start a fresh run after a franchise reset (keeps lifetime stats)
+        public void ResetRun(double startCash) { Money = startCash; RunEarned = 0; }
 
         public bool TrySpend(double amt)
         {
@@ -53,6 +57,7 @@ namespace IdleSim
             var ic = CultureInfo.InvariantCulture;
             PlayerPrefs.SetString("money", Money.ToString(ic));
             PlayerPrefs.SetString("earned", TotalEarned.ToString(ic));
+            PlayerPrefs.SetString("runEarned", RunEarned.ToString(ic));
             PlayerPrefs.SetInt("served", CustomersServed);
             PlayerPrefs.SetInt("lost", LostSales);
             PlayerPrefs.SetString("lastQuit", DateTime.UtcNow.Ticks.ToString(ic));
@@ -71,6 +76,7 @@ namespace IdleSim
 
             Money = double.Parse(PlayerPrefs.GetString("money", "50"), ic);
             TotalEarned = double.Parse(PlayerPrefs.GetString("earned", "0"), ic);
+            RunEarned = double.Parse(PlayerPrefs.GetString("runEarned", "0"), ic);
             CustomersServed = PlayerPrefs.GetInt("served", 0);
             LostSales = PlayerPrefs.GetInt("lost", 0);
 

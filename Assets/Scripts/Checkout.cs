@@ -35,6 +35,8 @@ namespace IdleSim
 
         public void RefreshQueue() => UpdatePositions();
 
+        public void Clear() => line.Clear();
+
         void UpdatePositions()
         {
             line.RemoveAll(c => c == null);

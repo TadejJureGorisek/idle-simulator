@@ -18,6 +18,7 @@ namespace IdleSim
 
             // attach runtime overlays (works without re-running the scene builder)
             if (GetComponent<WorldIcons>() == null) gameObject.AddComponent<WorldIcons>();
+            if (GetComponent<Franchise>() == null) gameObject.AddComponent<Franchise>();
         }
 
         void Setup()
