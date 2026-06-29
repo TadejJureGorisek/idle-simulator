@@ -24,6 +24,10 @@ namespace IdleSim
         readonly Dictionary<string, Material> paintMats = new Dictionary<string, Material>();
         public Checkout Checkout;
         public CustomerSpawner Spawner;
+        [System.NonSerialized] public List<Transform> Counters = new List<Transform>();   // checkout counters — one per cashier
+        [System.NonSerialized] public List<Employee> Staff = new List<Employee>();         // employee NPCs (cashier/restocker/cleaner/manager)
+        [System.NonSerialized] List<XZ> savedCounters = new List<XZ>();                    // extra-counter positions from the saved layout
+        Transform staffRoot;
         public Transform Entrance, Exit;
 
         // store floor footprint — the pad AND the edit grid both derive from this, so they stay
@@ -100,6 +104,8 @@ namespace IdleSim
             LoadLocations();
             LoadLayout();
             RebuildNav();
+            SyncCounters();
+            SyncEmployees();
             Day = PlayerPrefs.GetInt("day", 1);
             State = DayState.Open;
             Clock = 6f;
@@ -109,12 +115,12 @@ namespace IdleSim
         void BuildUpgrades()
         {
             Upgrades.Clear();
-            Upgrades.Add(new Upgrade("cashier", "Hire Cashier", 200, 1.12f, () => { Cashiers++; RecalcRates(); }));
-            Upgrades.Add(new Upgrade("restocker", "Hire Restocker", 400, 1.12f, () => { Restockers++; RecalcRates(); }));
+            Upgrades.Add(new Upgrade("cashier", "Hire Cashier", 200, 1.12f, () => { Cashiers++; RecalcRates(); SyncCounters(); SyncEmployees(); }));
+            Upgrades.Add(new Upgrade("restocker", "Hire Restocker", 400, 1.12f, () => { Restockers++; RecalcRates(); SyncEmployees(); }));
             Upgrades.Add(new Upgrade("fastco", "Faster Checkout", 600, 1.12f, () => { checkoutSpeedSteps++; RecalcRates(); }));
-            Upgrades.Add(new Upgrade("manager", "Hire Manager", 2500, 1.5f, () => { Managers++; IncomeMult = 1.0 + 0.20 * Managers; }, 12)); // finite global x (caps at +240%) so it can't run away
+            Upgrades.Add(new Upgrade("manager", "Hire Manager", 2500, 1.5f, () => { Managers++; IncomeMult = 1.0 + 0.20 * Managers; SyncEmployees(); }, 12)); // finite global x (caps at +240%) so it can't run away
             Upgrades.Add(new Upgrade("ads", "Advertising", 3000, 1.13f, () => { adSteps++; RecalcRates(); }));
-            Upgrades.Add(new Upgrade("cleaner", "Hire Cleaner", 350, 1.20f, () => { Cleaners++; }));
+            Upgrades.Add(new Upgrade("cleaner", "Hire Cleaner", 350, 1.20f, () => { Cleaners++; SyncEmployees(); }));
             Upgrades.Add(new Upgrade("shift", "Longer Shift +2h", 500, 1.45f, () => { ShiftHours = Mathf.Min(24f, ShiftHours + 2f); }, 8));
             Upgrades.Add(new Upgrade("autoday", "AUTO NEW DAY", 250000, 1f, () => { AutoNewDay = true; }, 1));
             // connected locations (warehouse, fabricator, …) live on the Galaxy Map, not in this list
@@ -166,6 +172,8 @@ namespace IdleSim
             AddStand(Catalog.ById("st_small"), new Vector3(-3f, 0, 4f));
             AddStand(Catalog.ById("st_small"), new Vector3(3f, 0, 4f));
             RebuildNav();
+            SyncCounters();
+            SyncEmployees();
         }
 
         // ---- fixtures ----
@@ -180,6 +188,152 @@ namespace IdleSim
         }
 
         public Shelf AddShelf(Vector3 pos) => AddStand(Catalog.ById("st_basic"), pos);
+
+        // ---- placement: find a clear footprint-sized spot so fixtures don't overlap ----
+        struct Foot { public Vector2 c, half; }
+
+        static Vector2 FootLocal(Transform t, Vector2 size)
+        {
+            float yaw = Mathf.Repeat(t.localEulerAngles.y, 180f);
+            return (yaw > 45f && yaw < 135f) ? new Vector2(size.y, size.x) : size;   // rotated 90° -> swap w/d
+        }
+
+        List<Foot> CollectFootprints()
+        {
+            var list = new List<Foot>();
+            void Add(Transform t, Vector2 size)
+            {
+                if (t == null) return;
+                Vector2 fp = FootLocal(t, size);
+                Vector3 lp = ShopLocal(t.position);
+                list.Add(new Foot { c = new Vector2(lp.x, lp.z), half = fp * 0.5f });
+            }
+            foreach (var s in Shelves) { if (s == null) continue; var it = Catalog.ById(s.catalogId); Add(s.transform, new Vector2(it.size.x, it.size.z)); }
+            foreach (var d in DecorItems) { if (d == null) continue; var dc = d.GetComponent<Decor>(); var it = dc != null ? Catalog.ById(dc.catalogId) : null; Add(d, it != null ? new Vector2(it.size.x, it.size.z) : Vector2.one); }
+            foreach (var c in Counters) Add(c, new Vector2(2f, 2f));
+            return list;
+        }
+
+        static bool Overlaps(Vector2 c, Vector2 half, List<Foot> occ)
+        {
+            foreach (var f in occ)
+                if (Mathf.Abs(c.x - f.c.x) < half.x + f.half.x && Mathf.Abs(c.y - f.c.y) < half.y + f.half.y) return true;
+            return false;
+        }
+
+        // Scan the floor grid for the first clear spot that fits this item's footprint (no overlap).
+        public Vector3 FindFreeSpot(CatalogItem it)
+        {
+            Vector2 half = new Vector2(it.size.x, it.size.z) * 0.5f + Vector2.one * 0.1f;   // tiny gap
+            float hw = FloorWidth / 2f - 0.6f, hd = FloorDepth / 2f - 0.6f;
+            var occ = CollectFootprints();
+            for (float z = FloorCenter.z - hd + half.y; z <= FloorCenter.z + hd - half.y + 0.001f; z += 0.5f)
+                for (float x = FloorCenter.x - hw + half.x; x <= FloorCenter.x + hw - half.x + 0.001f; x += 0.5f)
+                    if (!Overlaps(new Vector2(x, z), half, occ)) return ShopWorld(new Vector3(x, 0f, z));
+            return ShopWorld(new Vector3(FloorCenter.x, 0f, FloorCenter.z));   // fallback: floor full
+        }
+
+        // ---- checkout counters: one per cashier ----
+        public void SyncCounters()
+        {
+            if (Checkout == null) return;
+            if (Counters.Count == 0) Counters.Add(Checkout.transform);   // the original till is counter #1
+            int want = Mathf.Max(1, Cashiers);
+            while (Counters.Count < want)
+            {
+                int extra = Counters.Count - 1;   // 0-based index among the extra counters
+                var c = BuildCounterVisual();
+                if (ShopRoot != null) c.SetParent(ShopRoot, true);
+                if (extra < savedCounters.Count && savedCounters[extra] != null)
+                {
+                    var sv = savedCounters[extra];   // restore the player's saved/moved position
+                    c.position = ShopWorld(new Vector3(sv.x, 0f, sv.z));
+                    c.localRotation = Quaternion.Euler(0, sv.rot, 0);
+                }
+                else
+                {
+                    if (Counters[0] != null) c.rotation = Counters[0].rotation;
+                    c.position = FindFreeSpot(Catalog.ById("st_double"));   // ~2x2 footprint, no overlap
+                }
+                Counters.Add(c);
+            }
+            RebuildNav();
+        }
+
+        Transform BuildCounterVisual()
+        {
+            var root = new GameObject("Counter").transform;
+            root.gameObject.AddComponent<CounterTag>();   // so the editor can pick + drag it
+            var mat = new Material(Shader.Find("Standard")); mat.color = new Color(0.30f, 0.50f, 0.70f); mat.SetFloat("_Glossiness", 0.4f);
+            Vector2[] cells = { new Vector2(-0.5f, -0.5f), new Vector2(0.5f, -0.5f), new Vector2(-0.5f, 0.5f) };
+            foreach (var cc in cells)
+            {
+                var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.name = "CounterCell"; cube.transform.SetParent(root, false);
+                cube.transform.localScale = new Vector3(1f, 0.9f, 1f);
+                cube.transform.localPosition = new Vector3(cc.x, 0.45f, cc.y);
+                cube.GetComponent<Renderer>().material = mat;
+            }
+            return root;
+        }
+
+        // ---- employee NPCs (cashier mans a counter; others wander the floor) ----
+        public Vector3 RandomFloorPoint()
+        {
+            float hw = FloorWidth / 2f - 1f, hd = FloorDepth / 2f - 1f;
+            return ShopWorld(new Vector3(FloorCenter.x + UnityEngine.Random.Range(-hw, hw), 0f, FloorCenter.z + UnityEngine.Random.Range(-hd, hd)));
+        }
+
+        public void SyncEmployees()
+        {
+            if (staffRoot == null) staffRoot = new GameObject("Staff").transform;
+            SyncRole(Employee.Role.Cashier, Mathf.Max(0, Cashiers));
+            SyncRole(Employee.Role.Restocker, Restockers);
+            SyncRole(Employee.Role.Cleaner, Cleaners);
+            SyncRole(Employee.Role.Manager, Managers);
+            var cash = Staff.FindAll(s => s != null && s.role == Employee.Role.Cashier);   // cashiers man the counters
+            for (int i = 0; i < cash.Count; i++)
+                cash[i].counter = (Counters.Count > 0) ? Counters[Mathf.Min(i, Counters.Count - 1)] : null;
+        }
+
+        void SyncRole(Employee.Role role, int want)
+        {
+            Staff.RemoveAll(s => s == null);
+            var of = Staff.FindAll(s => s.role == role);
+            while (of.Count < want) of.Add(SpawnEmployee(role));
+            while (of.Count > want) { var e = of[of.Count - 1]; of.RemoveAt(of.Count - 1); Staff.Remove(e); if (e != null) Destroy(e.gameObject); }
+        }
+
+        Employee SpawnEmployee(Employee.Role role)
+        {
+            var root = new GameObject(role + " (staff)");
+            root.transform.SetParent(staffRoot);
+            Vector3 p = RandomFloorPoint(); p.y = 0f; root.transform.position = p;
+
+            // ALL employees use the Meshy-6 hero model (distinct from the Meshy-5 customer crowd),
+            // tinted subtly by role so the roles still read apart.
+            Color tint = role == Employee.Role.Restocker ? new Color(1f, 0.88f, 0.72f)
+                       : role == Employee.Role.Cleaner ? new Color(0.78f, 0.95f, 0.82f)
+                       : role == Employee.Role.Manager ? new Color(0.93f, 0.84f, 1f)
+                       : Color.white;   // cashier = natural
+            if (NpcVisuals.Attach(root.transform, "employee", 1.7f, tint) == null)
+            {
+                var cap = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                cap.name = "Vis"; var col = cap.GetComponent<Collider>(); if (col != null) col.enabled = false;
+                cap.transform.SetParent(root.transform, false);
+                cap.transform.localScale = new Vector3(0.45f, 0.5f, 0.45f);
+                cap.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+                Color c = role == Employee.Role.Cashier ? new Color(0.2f, 0.6f, 0.95f)
+                        : role == Employee.Role.Restocker ? new Color(0.95f, 0.6f, 0.2f)
+                        : role == Employee.Role.Cleaner ? new Color(0.5f, 0.85f, 0.45f)
+                        : new Color(0.85f, 0.35f, 0.6f);
+                cap.GetComponent<Renderer>().material.color = c;
+            }
+
+            var emp = root.AddComponent<Employee>(); emp.role = role;
+            Staff.Add(emp);
+            return emp;
+        }
 
         public Transform AddDecor(CatalogItem it, Vector3 pos)
         {
@@ -259,9 +413,25 @@ namespace IdleSim
             return true;
         }
         // location effects fed back into the main store:
-        public float SupplyCostFactor => Mathf.Pow(0.92f, LocLev("warehouse"));   // warehouse: -8% cost of goods / level
-        public float SpoilFactor => Mathf.Pow(0.80f, LocLev("farm"));             // farm: -20% spoilage / level
-        public double LocationMult => (1.0 + 0.12 * LocLev("fabricator")) * (1.0 + 0.15 * LocLev("reactor")) * (1.0 + 0.25 * LocLev("hypermarket"));
+        // Location effects are LIVE from each location's stage minigame (StageManager): efficiency scales
+        // the boost. Each falls back to the flat per-level value if the stage component isn't present yet.
+        public float SupplyCostFactor   // warehouse: -% cost of goods
+        {
+            get { var sm = StageManager.Instance; return (sm != null && sm.Active("warehouse")) ? sm.Factor("warehouse") : Mathf.Pow(0.92f, LocLev("warehouse")); }
+        }
+        public float SpoilFactor        // farm: -% spoilage
+        {
+            get { var sm = StageManager.Instance; return (sm != null && sm.Active("farm")) ? sm.Factor("farm") : Mathf.Pow(0.80f, LocLev("farm")); }
+        }
+        public double LocationMult      // fabricator / reactor / hypermarket: +% income
+        {
+            get
+            {
+                var sm = StageManager.Instance;
+                double M(string id, double per) => (sm != null && sm.Active(id)) ? sm.IncomeMult(id) : (1.0 + per * LocLev(id));
+                return M("fabricator", 0.12) * M("reactor", 0.15) * M("hypermarket", 0.25);
+            }
+        }
         public string LocBonusText(string id)   // current total effect, for the Galaxy Map
         {
             int lv = LocLev(id);
@@ -466,6 +636,13 @@ namespace IdleSim
             }
         }
 
+        // total units on shelves right now — used to gate spawning so we never admit more customers than
+        // there is stock for (a customer with nothing to buy would just walk in and leave).
+        public int TotalStock
+        {
+            get { int t = 0; foreach (var s in Shelves) if (s != null) t += s.Stock; return t; }
+        }
+
         void Update()
         {
             if (Editing) return; // store paused while editing the layout
@@ -534,6 +711,9 @@ namespace IdleSim
             if (Input.GetKeyDown(KeyCode.Space)) Checkout.ServeFront();
             if (Input.GetKeyDown(KeyCode.R)) { foreach (var s in Shelves) if (s != null) s.RestockAffordable(); }
             if (Input.GetKeyDown(KeyCode.F12)) PlayerPrefs.DeleteAll();
+            // debug cash (for trying the meta-game): M = +$10M, N = +$1B
+            if (Input.GetKeyDown(KeyCode.M)) Economy.Instance.Add(1e7);
+            if (Input.GetKeyDown(KeyCode.N)) Economy.Instance.Add(1e9);
         }
 
         public double AvgBasket => (1 + MaxCart) / 2.0;
@@ -669,6 +849,12 @@ namespace IdleSim
                 foreach (var c in Checkout.GetComponentsInChildren<Collider>())
                     if (c.enabled) Nav.BlockBounds(c.bounds, 0.4f);
             }
+            for (int i = 1; i < Counters.Count; i++)   // extra cashier counters block nav too
+            {
+                if (Counters[i] == null) continue;
+                foreach (var c in Counters[i].GetComponentsInChildren<Collider>())
+                    if (c.enabled) Nav.BlockBounds(c.bounds, 0.4f);
+            }
 
             // there is no floor outside the pad, so confine the walkable area to it
             float hw = FloorWidth / 2f - 0.6f, hd = FloorDepth / 2f - 0.6f;
@@ -757,6 +943,7 @@ namespace IdleSim
             d.shopRotation = ShopRotation;
             d.unlocked = UnlockedItems;
             if (Checkout != null) d.checkout = Fix(Checkout.transform);
+            for (int i = 1; i < Counters.Count; i++) if (Counters[i] != null) d.counters.Add(Fix(Counters[i]));   // extras (skip the original till)
             foreach (var s in Shelves)
                 if (s != null) { var xz = Fix(s.transform); xz.id = s.catalogId; xz.sec = s.section; d.shelves.Add(xz); }
             foreach (var dv in Dividers) if (dv != null) d.dividers.Add(Fix(dv));
@@ -792,6 +979,7 @@ namespace IdleSim
                     Checkout.transform.position = ShopWorld(new Vector3(d.checkout.x, y, d.checkout.z));
                     Checkout.transform.localRotation = Quaternion.Euler(0, d.checkout.rot, 0);
                 }
+                savedCounters = d.counters ?? new List<XZ>();   // SyncCounters restores these positions
 
                 // shelves: clear + rebuild each from its saved catalog type
                 foreach (var s in Shelves) if (s != null) Destroy(s.gameObject);

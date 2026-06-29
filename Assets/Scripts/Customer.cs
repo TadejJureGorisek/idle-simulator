@@ -11,7 +11,8 @@ namespace IdleSim
         enum St { ToShelf, ToQueue, InLine, Leaving }
 
         St state;
-        const float Speed = 3.2f;
+        const float Speed = 2.0f;   // a natural walking pace (tune with NpcAnimator.strideTune)
+        NpcAnimator npcAnim;
         Shelf target;
         int wanted;
         int collected;
@@ -22,6 +23,7 @@ namespace IdleSim
         int pathIndex;
         bool ghosting;
         bool escaping;
+        Vector3 prevPos; bool prevInit;   // for turning to face the direction of travel
 
         public bool InLine => state == St.InLine;
 
@@ -31,7 +33,7 @@ namespace IdleSim
             collected = 0;
             basketValue = 0;
             target = Sim.Instance.GetStockedShelf();
-            if (target == null) { GoLeave(true); return; }
+            if (target == null) { Destroy(gameObject); return; }   // nothing to buy -> never walk in / loiter
             state = St.ToShelf;
             SetPath(FrontOf(target.transform));
         }
@@ -85,6 +87,15 @@ namespace IdleSim
         void Update()
         {
             if (Sim.Instance != null && Sim.Instance.Editing) return; // frozen while editing
+
+            // turn to face the way we moved last frame (so customers aren't all facing one way) + drive walk/idle
+            Vector3 v = transform.position - prevPos; v.y = 0f;
+            float spd = (prevInit && Time.deltaTime > 0f) ? v.magnitude / Time.deltaTime : 0f;
+            if (prevInit && v.sqrMagnitude > 1e-6f)
+                transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(v), 12f * Time.deltaTime);
+            prevPos = transform.position; prevInit = true;
+            if (npcAnim == null) npcAnim = GetComponentInChildren<NpcAnimator>();
+            if (npcAnim != null) npcAnim.SetMoving(spd > 0.15f, Speed);
 
             bool ghost = Sim.Instance != null && Sim.Instance.IsGhost;
             if (ghosting && !ghost) { ghosting = false; if (state != St.InLine) SetPath(dest); }

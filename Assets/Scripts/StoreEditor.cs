@@ -125,6 +125,7 @@ namespace IdleSim
         {
             var sh = c.GetComponentInParent<Shelf>(); if (sh != null) return sh.transform;
             var co = c.GetComponentInParent<Checkout>(); if (co != null) return co.transform;
+            var ct = c.GetComponentInParent<CounterTag>(); if (ct != null) return ct.transform;
             var dv = c.GetComponentInParent<Divider>(); if (dv != null) return dv.transform;
             var de = c.GetComponentInParent<Decor>(); if (de != null) return de.transform;
             return null;
@@ -146,7 +147,9 @@ namespace IdleSim
         {
             tool = 0; // placing switches to Move so the new item is draggable
             var sim = Sim.Instance; var e = Economy.Instance;
-            Vector3 spot = sim.ShopRoot != null ? sim.ShopRoot.TransformPoint(new Vector3(0, 0, 1.5f)) : new Vector3(0, 0, 1.5f);
+            // shelves auto-place in the first clear footprint (no overlap); decor drops at the shop front
+            Vector3 spot = it.kind == ItemKind.Stand ? sim.FindFreeSpot(it)
+                         : (sim.ShopRoot != null ? sim.ShopRoot.TransformPoint(new Vector3(0, 0, 1.5f)) : new Vector3(0, 0, 1.5f));
             Transform t = null;
             if (it.kind == ItemKind.Stand)
             {

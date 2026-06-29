@@ -20,6 +20,8 @@ namespace IdleSim
             if (GetComponent<WorldIcons>() == null) gameObject.AddComponent<WorldIcons>();
             if (GetComponent<Franchise>() == null) gameObject.AddComponent<Franchise>();
             if (GetComponent<GalaxyMap>() == null) gameObject.AddComponent<GalaxyMap>();
+            if (GetComponent<StageManager>() == null) gameObject.AddComponent<StageManager>();
+            if (GetComponent<PerfHud>() == null) gameObject.AddComponent<PerfHud>();
         }
 
         void Setup()

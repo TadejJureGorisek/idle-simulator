@@ -31,6 +31,7 @@ namespace IdleSim
         public float shopRotation;
         public int unlocked = 1;
         public XZ checkout;
+        public List<XZ> counters = new List<XZ>();   // extra cashier counters (beyond the original till)
         public List<XZ> shelves = new List<XZ>();
         public List<XZ> dividers = new List<XZ>();
         public List<XZ> decor = new List<XZ>();
