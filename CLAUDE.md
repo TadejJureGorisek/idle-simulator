@@ -83,6 +83,13 @@ I cannot compile-test inside an open editor or drive Play mode. Two real options
   locations (Warehouse/Fabricator/Orbital Farm/Fusion Reactor/Hypermarket), built + upgraded ON the map
   (sequential unlock); effects feed the store (`SupplyCostFactor`, `SpoilFactor`, `LocationMult`). Bottom-left
   **GALAXY MAP** button → store hub + orbiting nodes + supply lines (brighten with level) + build/upgrade panel.
+  - **Animated supply shuttles** stream from each built location INTO the store (`GalaxyMap.Shuttles`, cyan
+    streak + bright head, `Time.unscaledTime` so they run regardless of game-speed/pause). Count + speed +
+    streak length scale with the location's level → a visible *trickle (Lv1) → torrent (high Lv)*.
+  - **Opening the map HIDES the 3D marketplace** (`GalaxyMap.SetStoreHidden`): the camera's `cullingMask` is
+    swapped to render ONLY the nebula backdrop (put on layer 30 at first open), so the store + customers vanish
+    behind the map while the nebula stays. The mask is restored on close (and on force-close into edit/franchise).
+    Logic keeps running — it's a render-only hide, not a pause. The `SpaceBackdrop` quad must stay named that.
 - `Customer.cs` (state machine; `basketValue` accrues per item by section), `Checkout.cs` (snaking queue),
   `CustomerSpawner.cs`, `NavGrid.cs` (A* + `KeepOnly`), `Shelf.cs` (stock + `catalogId` + `section`,
   per-section restock cost), `Decor.cs`, `Producer*.cs` **removed**.
