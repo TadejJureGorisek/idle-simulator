@@ -55,6 +55,7 @@ namespace IdleSim
         [System.NonSerialized] public int servedToday;
         readonly List<Transform> messObjs = new List<Transform>();
         float cleanTimer;
+        float spoilTimer;
 
         public bool IsOpen => State == DayState.Open;
         public bool Is247 => ShiftHours >= 23.99f;
@@ -238,8 +239,9 @@ namespace IdleSim
 
         // ---- section investment / value ----
         public int GetSectionLevel(string id) => SectionLevel.TryGetValue(id, out var l) ? l : 0;
-        public double SectionMult(string id) => Sections.ById(id).valueMult * System.Math.Pow(1.15, GetSectionLevel(id));
-        public double ItemValue(string id) => Profit * SectionMult(id);           // $ a single item of this section yields
+        public double SectionMult(string id) => System.Math.Pow(1.15, GetSectionLevel(id)); // level investment multiplier
+        // $ a single item of this section yields: its own margin (sell - cost), scaled by level + global mults
+        public double ItemValue(string id) => Sections.ById(id).margin * SectionMult(id) * IncomeMult * Franchise.Mult;
         public double SectionUpgradeCost(string id) => Sections.ById(id).upgradeBase * System.Math.Pow(1.15, GetSectionLevel(id));
 
         public bool UpgradeSection(string id)
@@ -259,11 +261,12 @@ namespace IdleSim
                 if (IsSectionUnlocked(s.id)) UpgradeSection(s.id);
         }
 
-        public double AvgSectionMult()
+        // average $/item across the current shelves (for the HUD income estimate)
+        public double AvgItemValue()
         {
             double sum = 0; int n = 0;
-            foreach (var s in Shelves) if (s != null) { sum += SectionMult(s.section); n++; }
-            return n > 0 ? sum / n : 1.0;
+            foreach (var s in Shelves) if (s != null) { sum += ItemValue(s.section); n++; }
+            return n > 0 ? sum / n : ItemValue("common");
         }
 
         // a shelf belongs to whatever section the floor cell beneath it is painted (else "common")
@@ -405,7 +408,11 @@ namespace IdleSim
         {
             var stocked = Shelves.FindAll(s => s != null && s.Stock > 0);
             if (stocked.Count == 0) return null;
-            return stocked[UnityEngine.Random.Range(0, stocked.Count)];
+            // customers head for sections by relative demand (cheap staples pull more than premium goods)
+            float total = 0f; foreach (var s in stocked) total += Sections.ById(s.section).demand;
+            float r = UnityEngine.Random.value * total;
+            foreach (var s in stocked) { r -= Sections.ById(s.section).demand; if (r <= 0f) return s; }
+            return stocked[stocked.Count - 1];
         }
 
         public bool HasStock
@@ -442,6 +449,16 @@ namespace IdleSim
                     autoRestockTimer = 0f;
                     AutoRestockOne();
                 }
+            }
+
+            // perishable sections (Produce, Cold) lose stock over time -> creates restock pressure
+            spoilTimer += Time.deltaTime;
+            if (spoilTimer >= 9f)
+            {
+                spoilTimer = 0f;
+                foreach (var s in Shelves)
+                    if (s != null && s.Stock > 0 && Sections.ById(s.section).perishable)
+                        s.Stock = Mathf.Max(0, s.Stock - Mathf.Max(1, s.Capacity / 12));
             }
         }
 
@@ -481,7 +498,7 @@ namespace IdleSim
             if (Cashiers <= 0 || Restockers <= 0) return 0;
             double serveRate = 1.0 / CheckoutInterval;
             double spawnRate = 1.0 / SpawnInterval;
-            return Math.Min(serveRate, spawnRate) * Profit * AvgBasket * AvgSectionMult();
+            return Math.Min(serveRate, spawnRate) * AvgItemValue() * AvgBasket;
         }
 
         // ---- day / shift ----

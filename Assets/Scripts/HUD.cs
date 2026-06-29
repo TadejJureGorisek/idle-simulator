@@ -6,7 +6,7 @@ namespace IdleSim
     public class HUD : MonoBehaviour
     {
         GUIStyle big, mid, small, btn, head, rowBtn;
-        Texture2D swatch, rowNormal, rowHover;
+        Texture2D swatch, rowNormal, rowHover, coinIcon;
         bool init;
         string welcome;
 
@@ -42,6 +42,7 @@ namespace IdleSim
             rowBtn.normal.background = rowNormal; rowBtn.onNormal.background = rowNormal; rowBtn.focused.background = rowNormal;
             rowBtn.hover.background = rowHover; rowBtn.active.background = rowHover; rowBtn.onHover.background = rowHover; rowBtn.onActive.background = rowHover;
             rowBtn.normal.textColor = new Color(0.90f, 0.94f, 1f); rowBtn.hover.textColor = Color.white; rowBtn.active.textColor = Color.white;
+            coinIcon = Resources.Load<Texture2D>("icon_coin");
         }
 
         static Texture2D Solid(Color c)
@@ -68,7 +69,8 @@ namespace IdleSim
 
             // money / stats panel (content inset ~20px so it clears the neon frame)
             GUI.Box(new Rect(10, 10, 344, 116), GUIContent.none);
-            GUI.Label(new Rect(30, 24, 300, 34), Money(e.Money), big);
+            if (coinIcon != null) GUI.DrawTexture(new Rect(30, 26, 30, 30), coinIcon, ScaleMode.ScaleToFit);
+            GUI.Label(new Rect(coinIcon != null ? 66 : 30, 24, 280, 34), Money(e.Money), big);
             double inc = sim.EstIncomePerSec();
             GUI.Label(new Rect(30, 62, 300, 20), "Income  <color=#6BE08A>" + Money(inc) + "</color> <color=#8A98B0>/sec</color>", mid);
             GUI.Label(new Rect(30, 84, 300, 20),

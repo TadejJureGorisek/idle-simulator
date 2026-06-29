@@ -89,6 +89,7 @@ namespace IdleSim
         // ---------- UI (IMGUI, like the rest of the HUD) ----------
         bool open, confirm, ready;
         GUIStyle title, body, btn, box;
+        Texture2D star;
 
         void Setup()
         {
@@ -99,6 +100,7 @@ namespace IdleSim
             body.normal.textColor = new Color(0.88f, 0.9f, 0.96f);
             btn = new GUIStyle(GUI.skin.button) { fontSize = 12 };
             box = new GUIStyle(GUI.skin.box);
+            star = Resources.Load<Texture2D>("icon_star");
         }
 
         void OnGUI()
@@ -124,7 +126,8 @@ namespace IdleSim
             cy += 42;
 
             int bonus = Mathf.RoundToInt((float)((CurrentMult - 1.0) * 100.0));
-            GUI.Label(new Rect(ix, cy, iw, 20), "You have  ★ " + FP + " FP   →   +" + bonus + "% income right now", body);
+            if (star != null) GUI.DrawTexture(new Rect(ix, cy + 1f, 16f, 16f), star, ScaleMode.ScaleToFit);
+            GUI.Label(new Rect(ix + (star != null ? 20f : 0f), cy, iw - 20f, 20), "You have " + FP + " FP   →   +" + bonus + "% income now", body);
             cy += 24;
 
             int gain = FpOnReset();
