@@ -58,22 +58,36 @@ I cannot compile-test inside an open editor or drive Play mode. Two real options
   the unlocked starter**, `st_basic` (Basic Shelf, 1×2) is index 1 and intentionally pricier. Helpers
   `St(id,name,w,d,cap,cost)` / `Dc(id,name,shape,size,color)`.
 - **`Sections.cs`** (`Section` + `Sections`) — the 6 **departments**: `common` (free/unlocked), `veg`,
-  `pantry`, `sweets`, `refrigerated`, `electronics`. Each has a **color**, `unlockCost`, `valueMult`
-  (per-item profit vs common), and `upgradeBase`. Order = unlock progression (cheap → premium).
+  `pantry`, `sweets`, `refrigerated`, `electronics`. **Per-section products:** `sell`/`cost` (margin),
+  `demand` (customer pull), `perishable` (Produce + Cold spoil), plus `color`, `unlockCost`, `upgradeBase`.
+  `Sections.Short(id)` = compact HUD name. Order = unlock progression (cheap → premium).
 - **`StoreEditor.cs`** — edit mode (round **+** button toggles it; hard-pauses via timeScale). The left
   **CATALOG** panel: a **Section:** brush (cycles unlocked sections, color-tinted), a **Tool: Move / Paint
   floor / Erase floor** cycle, an **Unlock: next item** button, and the scrollable item list (per-item
   `StandCost(it) = it.cost × 1.18^(shelves placed)`). Drag fixtures (shop-local 0.5 snap), `Q/E` rotate
   the whole shop ±45°, `R` rotates the selected item.
-- **`HUD.cs`** — IMGUI HUD: money/income/stats (top-left), clock+day (top-centre, NEW DAY button when
-  closed), and the right panel = **UPGRADES** + a **SECTIONS** block (per-section Unlock or `Lv N` upgrade
-  buttons with color swatches, plus an **All +1** button). Auto-attaches `WorldIcons` in `Start`.
-- `Customer.cs` (state machine: ToShelf/ToQueue/InLine/Leaving, grid pathfinding, anti-trap escape),
-  `Checkout.cs` (snaking queue), `CustomerSpawner.cs`, `NavGrid.cs` (A* + `KeepOnly` pad confinement),
-  `Shelf.cs` (stock + `catalogId` + `section`), `Decor.cs` (marker), `Producer*.cs` **removed**.
+- **`HUD.cs`** — IMGUI HUD: money panel (coin icon, money, green income, served/lost/queue, milestone bonus),
+  clock + **game-speed control** (`[-] x [+]`, `Sim.GameSpeed`→`Time.timeScale`) + **End Day** / **NEW DAY**,
+  and the right panel = **UPGRADES** + **SECTIONS** as **flat translucent rows** (flush, no gaps, thin
+  dividers; section names tinted by department; amber costs). Auto-attaches `WorldIcons` + `Franchise` +
+  `GalaxyMap` in `Start`.
+- **`UISkin.cs`** — applies the Higgsfield holographic-glass tiles to the built-in IMGUI box/button styles
+  globally (9-slice, translucent). Call `UISkin.EnsureApplied()` atop each `OnGUI`. Tiles in `Assets/Resources`
+  (`ui_panel`/`ui_button`); `Assets/Editor/UITextureImporter.cs` keeps them + the icons at 256/uncompressed.
+- **`Franchise.cs`** — prestige: sell the chain for **Franchise Points** (FP = √(runEarned/100)); each FP =
+  +2% income forever (`Franchise.Mult`) + 6 one-time perks. Bottom-left button + panel. `Sim.HardResetRun`
+  wipes the run (FP / perks / locations persist).
+- **`Milestones.cs`** — achievement milestones (served + lifetime-earned thresholds), each +2% global income
+  (`Sim.MilestoneMult`); shown in the money panel. Derived from monotonic stats → no save needed.
+- **`Locations.cs` + `GalaxyMap.cs`** — the connected-locations meta-game + its zoom-out map screen. 5
+  locations (Warehouse/Fabricator/Orbital Farm/Fusion Reactor/Hypermarket), built + upgraded ON the map
+  (sequential unlock); effects feed the store (`SupplyCostFactor`, `SpoilFactor`, `LocationMult`). Bottom-left
+  **GALAXY MAP** button → store hub + orbiting nodes + supply lines (brighten with level) + build/upgrade panel.
+- `Customer.cs` (state machine; `basketValue` accrues per item by section), `Checkout.cs` (snaking queue),
+  `CustomerSpawner.cs`, `NavGrid.cs` (A* + `KeepOnly`), `Shelf.cs` (stock + `catalogId` + `section`,
+  per-section restock cost), `Decor.cs`, `Producer*.cs` **removed**.
 - `StoreLayoutData.cs` — save schema: `XZ{x,z,rot,id,sec}`, `PaintCell{i,j,sec}`,
-  `LayoutData{shopRotation, unlocked, checkout, shelves[], dividers[], decor[], paint[]}` (JsonUtility →
-  PlayerPrefs key `storeLayout`).
+  `LayoutData{shopRotation, unlocked, checkout, shelves[], dividers[], decor[], paint[]}` (PlayerPrefs `storeLayout`).
 
 ## Key mechanics
 - **Sections = painted floor zones, and shelves inherit from the floor.** In edit mode you Paint the floor
@@ -83,10 +97,16 @@ I cannot compile-test inside an open editor or drive Play mode. Two real options
   repainting a zone re-tags + recolors the shelves on it. **Strategy:** diversify (multi-color floor, spread
   section upgrades) vs **specialize** (paint the whole floor one color → all shelves that section → dump
   upgrades into it).
-- **Income:** each item a customer buys pays `Profit × SectionMult(shelf.section)`, accumulated into a
-  basket and paid at checkout (`Customer.basketValue`). `Profit = (ItemPrice − ItemCost) × IncomeMult`;
-  `SectionMult = section.valueMult × 1.15^level`. `Economy.Money` rises live; `Sim.AvgSectionMult()` feeds
-  the HUD income estimate.
+- **Income (`Sim.ItemValue`):** each item a customer buys yields
+  `EffMargin × SectionMult × IncomeMult × Franchise.Mult × MilestoneMult × LocationMult`, accrued into a basket
+  paid at checkout (`Customer.basketValue`). `EffMargin = sell − cost×SupplyCostFactor` (warehouse discount);
+  `SectionMult = 1.15^sectionLevel`; `IncomeMult = 1 + 0.20×managers` (cap 12); customers pick shelves
+  **weighted by section demand**; `Sim.AvgItemValue()` feeds the HUD estimate.
+- **The stacking multipliers** are the long curve: section levels (×1.15 value, **cost ×1.35** so it stretches —
+  ⚠️ cost growth MUST exceed the value step or income runs away; old 1.15/1.15 hit $1T in 33 min), Manager
+  (finite +240%), Milestones (+2% each), Franchise FP (prestige, +2% each), Locations. Tuned via greedy-player
+  sims (scratchpad `simgg*.ps1`): ~$1M in ~3 h, ~$1B in ~3 days. **Advertising** = the customer-rate upgrade
+  (~20→73+/min over levels, capped ~150/min).
 - **Catalog unlock + escalating cost:** `Sim.UnlockedItems` (1 at start) gates the catalog; each placed
   stand makes the next pricier (`× 1.18^count`) so the shop grows slowly. A fresh game starts with **2 small
   shelves** (`SceneBuilder` places `st_small` ×2) — only on a fresh save; an existing `storeLayout` restores
@@ -98,11 +118,16 @@ I cannot compile-test inside an open editor or drive Play mode. Two real options
   `paint`, THEN calls `RefreshAllShelfSections()`.
 - **Wing/scene coords:** fixtures live under `ShopRoot` (rotatable); convert with `ShopLocal`/`ShopWorld`.
   The edit grid + floor paint also sit under `ShopRoot` so they spin with the shop.
-- **PlayerPrefs keys:** `money/earned/served/lost/lastQuit/lastInc`, `storeLayout`, `lvl_<id>` (upgrades),
-  `sec_<id>` + `seclvl_<id>` (sections), `day`. Orphaned `prod_*`/`prodMult` may linger from the removed
-  producer system — harmless. `F12` deletes all.
-- **New `.cs` files need their `.meta`** committed — Unity only generates `.meta` once it has focused/imported
-  (or after a batch compile). Commit the `.meta` alongside the script so GUIDs are tracked.
+- **PlayerPrefs keys:** `money/earned/runEarned/served/lost/lastQuit/lastInc`, `storeLayout`, `lvl_<id>`
+  (upgrades), `sec_<id>`+`seclvl_<id>` (sections), `loc_<id>` (locations), `fp`+`perk_<id>` (franchise), `day`.
+  Orphaned `prod_*` (old producers) harmless. `F12` deletes all.
+- **9-slice UI tiles:** the neon must reach the very edge (the tiles are auto-cropped to the bright neon bbox)
+  or stacked elements show a gap; the tile needs a SMALL corner radius or the 9-slice smears the corner. List
+  rows are **flat translucent** (not glass tiles) so they stack gapless. ⚠️ OnGUI does NOT render in batch, so
+  the way to preview the HUD headlessly is a GDI 9-slice composite over the nebula at the REAL rects (scratchpad
+  `*.ps1`) — a standalone mock with made-up rects hides real layout/overflow bugs.
+- **New `.cs` files need their `.meta`** committed — Unity generates `.meta` on import / batch compile. Commit
+  the `.meta` alongside the script so GUIDs are tracked.
 
 ## AI asset generation + shared library (same rules as the other projects)
 Backgrounds/art are generated with **Higgsfield** (e.g. `bg_space_nebula.png` in `Assets/Art/`, runtime copy
@@ -114,10 +139,11 @@ no `.meta`) to `C:\Users\gorisektj\Desktop\icarus\custom_assets` **in the same t
 `Docs/EconomyDesign.md` (the fusion design + validated idle curve + the vertical-integration / locations-tree
 / zoom roadmap), `Docs/GDD.md`, `Docs/Galaxy_Grocery_Economy.csv`.
 
-## Roadmap (next)
-Per-section **products** (price/demand/restock-cost, maybe spoilage for Refrigerated/Produce) — sections are
-currently value-tier + color only. Then the supply layer (stock/order/storage/margin), supplier facilities +
-transport, the **locations tree / Galaxy-Map zoom**, living-world milestone unlocks (garage at 20 cashiers →
-vans → trucks), and prestige.
+## Roadmap
+**Done:** holographic UI skin + icons/logo, prestige (Franchise), per-section products (margin/demand/spoilage),
+achievement milestones, connected locations + Galaxy Map (v1), economy tuning, game-speed + End-Day controls.
+**Next:** richer locations (per-location sub-trees; animated supply shuttles that ramp trickle→torrent), a
+main-menu/title screen (`Assets/Resources/logo_galaxygrocery` is ready), more sections, a research tree,
+living-world milestone unlocks (garage at 20 cashiers → vans → trucks), and balance passes from real Play.
 
 ## Don't commit / push unless asked.

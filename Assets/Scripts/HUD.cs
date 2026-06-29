@@ -19,6 +19,7 @@ namespace IdleSim
             // attach runtime overlays (works without re-running the scene builder)
             if (GetComponent<WorldIcons>() == null) gameObject.AddComponent<WorldIcons>();
             if (GetComponent<Franchise>() == null) gameObject.AddComponent<Franchise>();
+            if (GetComponent<GalaxyMap>() == null) gameObject.AddComponent<GalaxyMap>();
         }
 
         void Setup()
@@ -122,7 +123,6 @@ namespace IdleSim
             foreach (var u in sim.Upgrades)
             {
                 if (u.Id == "autoday" && !sim.Is247) continue;   // extreme upgrade hidden until 24/7
-                if (u.Id == "supply" && !sim.WarehouseBuilt) continue; // supply line appears once the warehouse is built
                 string label = u.IsMaxed
                     ? "<b>" + u.Name + "</b>   <color=#8A98B0>(MAX)</color>"
                     : "<b>" + u.Name + "</b>  <color=#8A98B0>Lv " + u.Level + "</color>\n<color=#FFD24A>" + Money(u.CurrentCost) + "</color>";

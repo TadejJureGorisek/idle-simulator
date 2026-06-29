@@ -97,6 +97,7 @@ namespace IdleSim
         {
             LoadLevels();
             LoadSections();
+            LoadLocations();
             LoadLayout();
             RebuildNav();
             Day = PlayerPrefs.GetInt("day", 1);
@@ -116,8 +117,7 @@ namespace IdleSim
             Upgrades.Add(new Upgrade("cleaner", "Hire Cleaner", 350, 1.20f, () => { Cleaners++; }));
             Upgrades.Add(new Upgrade("shift", "Longer Shift +2h", 500, 1.45f, () => { ShiftHours = Mathf.Min(24f, ShiftHours + 2f); }, 8));
             Upgrades.Add(new Upgrade("autoday", "AUTO NEW DAY", 250000, 1f, () => { AutoNewDay = true; }, 1));
-            Upgrades.Add(new Upgrade("warehouse", "Build Warehouse", 3000000, 1f, () => { WarehouseBuilt = true; }, 1)); // first connected location
-            Upgrades.Add(new Upgrade("supply", "Supply Line  (-8% goods)", 200000, 1.3f, () => { SupplyLevel++; })); // raises margins; needs the warehouse
+            // connected locations (warehouse, fabricator, …) live on the Galaxy Map, not in this list
         }
 
         public void RecalcRates()
@@ -217,7 +217,6 @@ namespace IdleSim
         {
             if (u.IsMaxed) return false;
             if (u.Id == "autoday" && !Is247) return false; // unlocks only at 24/7
-            if (u.Id == "supply" && !WarehouseBuilt) return false; // needs the warehouse first
             if (Economy.Instance.TrySpend(u.CurrentCost))
             {
                 u.Level++;
@@ -245,17 +244,33 @@ namespace IdleSim
         public int GetSectionLevel(string id) => SectionLevel.TryGetValue(id, out var l) ? l : 0;
         public double SectionMult(string id) => System.Math.Pow(1.15, GetSectionLevel(id)); // level investment multiplier
 
-        // --- connected location: Warehouse supply line lowers cost-of-goods across every section ---
-        [System.NonSerialized] public bool WarehouseBuilt;
-        [System.NonSerialized] public int SupplyLevel;
-        public float SupplyCostFactor => WarehouseBuilt ? Mathf.Pow(0.92f, SupplyLevel) : 1f; // each supply level -8% cost of goods
-        public double EffMargin(string id) { var s = Sections.ById(id); return s.sell - s.cost * SupplyCostFactor; }
+        // --- connected locations (Galaxy Map meta-game) ---
+        [System.NonSerialized] public Dictionary<string, int> LocLevel = new Dictionary<string, int>();
+        public int LocLev(string id) => LocLevel.TryGetValue(id, out var l) ? l : 0;
+        public bool LocBuilt(string id) => LocLev(id) > 0;
+        public bool LocUnlocked(string id) { int i = Locations.Index(id); return i == 0 || LocBuilt(Locations.All[i - 1].id); } // sequential
+        public double LocCost(string id) { var d = Locations.ById(id); return LocBuilt(id) ? d.upBase * System.Math.Pow(d.upGrow, LocLev(id) - 1) : d.buildCost; }
+        public bool BuildLocation(string id)
+        {
+            if (!LocUnlocked(id)) return false;
+            if (Economy.Instance == null || !Economy.Instance.TrySpend(LocCost(id))) return false;
+            LocLevel[id] = LocLev(id) + 1;
+            SaveLocations();
+            return true;
+        }
+        // location effects fed back into the main store:
+        public float SupplyCostFactor => Mathf.Pow(0.92f, LocLev("warehouse"));   // warehouse: -8% cost of goods / level
+        public float SpoilFactor => Mathf.Pow(0.80f, LocLev("farm"));             // farm: -20% spoilage / level
+        public double LocationMult => (1.0 + 0.12 * LocLev("fabricator")) * (1.0 + 0.15 * LocLev("reactor")) * (1.0 + 0.25 * LocLev("hypermarket"));
 
-        // global income multiplier from completed achievement milestones
+        public double EffMargin(string id) { var s = Sections.ById(id); return s.sell - s.cost * SupplyCostFactor; }
         public double MilestoneMult => Economy.Instance != null ? Milestones.Mult(Economy.Instance.CustomersServed, Economy.Instance.TotalEarned) : 1.0;
 
-        // $ a single item yields: effective margin x section level x manager x franchise x milestone mults
-        public double ItemValue(string id) => EffMargin(id) * SectionMult(id) * IncomeMult * Franchise.Mult * MilestoneMult;
+        // $ a single item yields: effective margin x section level x manager x franchise x milestone x location mults
+        public double ItemValue(string id) => EffMargin(id) * SectionMult(id) * IncomeMult * Franchise.Mult * MilestoneMult * LocationMult;
+
+        void SaveLocations() { foreach (var d in Locations.All) PlayerPrefs.SetInt("loc_" + d.id, LocLev(d.id)); }
+        void LoadLocations() { LocLevel.Clear(); foreach (var d in Locations.All) { int l = PlayerPrefs.GetInt("loc_" + d.id, 0); if (l > 0) LocLevel[d.id] = l; } }
         public double SectionUpgradeCost(string id) => Sections.ById(id).upgradeBase * System.Math.Pow(1.35, GetSectionLevel(id)); // cost grows faster than the x1.15 value boost -> the curve stretches to days, not minutes
 
         public bool UpgradeSection(string id)
@@ -472,7 +487,10 @@ namespace IdleSim
                 spoilTimer = 0f;
                 foreach (var s in Shelves)
                     if (s != null && s.Stock > 0 && Sections.ById(s.section).perishable)
-                        s.Stock = Mathf.Max(0, s.Stock - Mathf.Max(1, s.Capacity / 12));
+                    {
+                        int sp = Mathf.RoundToInt((s.Capacity / 12f) * SpoilFactor); // Orbital Farm reduces this
+                        if (sp > 0) s.Stock = Mathf.Max(0, s.Stock - sp);
+                    }
             }
         }
 
@@ -807,6 +825,7 @@ namespace IdleSim
             }
             SaveLevels();
             SaveSections();
+            SaveLocations();
             SaveLayout();
             PlayerPrefs.SetInt("day", Day);
             PlayerPrefs.Save();
