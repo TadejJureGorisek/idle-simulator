@@ -39,6 +39,7 @@ namespace IdleSim
         public int ItemCost = 2;
         public int ItemPrice = 5;
         public int MaxCart = 4; // a customer buys a random 1..MaxCart products
+        [System.NonSerialized] public float GameSpeed = 1f; // game-speed multiplier (drives Time.timeScale when not editing)
 
         // ---- day / shift ----
         public enum DayState { Open, Closed }
@@ -656,6 +657,10 @@ namespace IdleSim
             return ShopWorld(lp);
         }
 
+        // ---- game speed ----
+        public void SpeedUp()  { GameSpeed = Mathf.Min(16f, GameSpeed * 2f); if (!Editing) Time.timeScale = GameSpeed; }
+        public void SlowDown() { GameSpeed = Mathf.Max(0.25f, GameSpeed / 2f); if (!Editing) Time.timeScale = GameSpeed; }
+
         // ---- edit mode ----
         public void EnterEdit()
         {
@@ -666,7 +671,7 @@ namespace IdleSim
         public void ResumeFromEdit()
         {
             Editing = false;
-            Time.timeScale = 1f;
+            Time.timeScale = GameSpeed;   // resume at the chosen game speed
             RebuildNav();
             if (Checkout != null) Checkout.RefreshQueue();
             GhostUntil = Time.time + 1.5f; // brief walk-through-anything grace so nobody is trapped

@@ -5,7 +5,7 @@ namespace IdleSim
     // Code-only IMGUI HUD for the prototype (no Canvas/prefabs needed). Styles are cached.
     public class HUD : MonoBehaviour
     {
-        GUIStyle big, mid, small, btn, head, rowBtn;
+        GUIStyle big, mid, small, btn, head, rowBtn, ctr;
         Texture2D swatch, rowNormal, rowHover, coinIcon;
         bool init;
         string welcome;
@@ -43,6 +43,8 @@ namespace IdleSim
             rowBtn.hover.background = rowHover; rowBtn.active.background = rowHover; rowBtn.onHover.background = rowHover; rowBtn.onActive.background = rowHover;
             rowBtn.normal.textColor = new Color(0.90f, 0.94f, 1f); rowBtn.hover.textColor = Color.white; rowBtn.active.textColor = Color.white;
             coinIcon = Resources.Load<Texture2D>("icon_coin");
+            ctr = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            ctr.normal.textColor = new Color(0.85f, 0.92f, 1f);
         }
 
         static Texture2D Solid(Color c)
@@ -84,10 +86,17 @@ namespace IdleSim
             GUI.Box(new Rect(cx - 100, 6, 200, 68), GUIContent.none);
             GUI.Label(new Rect(cx - 82, 20, 164, 22), "DAY " + sim.Day + "      " + ClockStr(sim.Clock), mid);
             GUI.Label(new Rect(cx - 82, 42, 164, 18), sim.IsOpen ? "<color=#6BE08A>OPEN</color>" : ("<color=#E88A8A>CLOSED</color>   ·   Mess " + sim.Mess), small);
+
+            // game-speed control: - halves, + doubles (0.25x .. 16x)
+            GUI.Box(new Rect(cx - 74, 78, 148, 32), GUIContent.none);
+            if (GUI.Button(new Rect(cx - 68, 82, 34, 24), "-", btn)) sim.SlowDown();
+            GUI.Label(new Rect(cx - 34, 80, 68, 26), sim.GameSpeed.ToString("0.##") + "x", ctr);
+            if (GUI.Button(new Rect(cx + 34, 82, 34, 24), "+", btn)) sim.SpeedUp();
+
             if (!sim.IsOpen)
             {
-                if (GUI.Button(new Rect(cx - 70, 82, 140, 32), "NEW DAY")) sim.NewDay();
-                GUI.Label(new Rect(cx - 120, 118, 240, 20), "Click trash to clean for +$" + sim.CleanReward + " each", small);
+                if (GUI.Button(new Rect(cx - 70, 116, 140, 32), "NEW DAY")) sim.NewDay();
+                GUI.Label(new Rect(cx - 120, 152, 240, 20), "Click trash to clean for +$" + sim.CleanReward + " each", small);
             }
 
             // upgrades + sections panel (right). Content is inset by `pad` so it stays INSIDE the
