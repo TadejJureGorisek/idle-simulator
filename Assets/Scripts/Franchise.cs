@@ -88,6 +88,7 @@ namespace IdleSim
 
         // ---------- UI (IMGUI, like the rest of the HUD) ----------
         bool open, confirm, ready;
+        public static bool PanelOpen;   // true while the franchise panel is the active modal
         GUIStyle title, body, btn, box;
         Texture2D star;
 
@@ -105,15 +106,21 @@ namespace IdleSim
 
         void OnGUI()
         {
-            if (Economy.Instance == null || Sim.Instance == null || Sim.Instance.Editing) return;
+            if (Economy.Instance == null || Sim.Instance == null) return;
+            if (Sim.Instance.Editing || GalaxyMap.MapOpen) { PanelOpen = false; return; }   // hidden in edit / when the map is the modal
             UISkin.EnsureApplied();
             if (!ready) Setup();
 
             // small always-on toggle, bottom-left
             if (GUI.Button(new Rect(12, Screen.height - 40, 220, 30), "FRANCHISE   ★ " + FP + " FP", btn))
             { open = !open; confirm = false; }
+            PanelOpen = open;
 
             if (!open) return;
+
+            // dim backdrop so the panel reads as a modal
+            var dimc = GUI.color; GUI.color = new Color(0f, 0f, 0f, 0.45f);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture); GUI.color = dimc;
 
             float w = 460, h = 150 + Perks.Length * 54 + 44;
             float x = (Screen.width - w) / 2f, y = (Screen.height - h) / 2f;

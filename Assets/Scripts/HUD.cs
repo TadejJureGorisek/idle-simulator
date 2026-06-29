@@ -69,13 +69,17 @@ namespace IdleSim
             var e = Economy.Instance;
             var sim = Sim.Instance;
             if (e == null || sim == null) return;
+            if (GalaxyMap.MapOpen || Franchise.PanelOpen) return;   // a modal screen is up
 
             // money / stats panel (content inset ~20px so it clears the neon frame)
             GUI.Box(new Rect(10, 10, 344, 138), GUIContent.none);
             if (coinIcon != null) GUI.DrawTexture(new Rect(30, 26, 30, 30), coinIcon, ScaleMode.ScaleToFit);
             GUI.Label(new Rect(coinIcon != null ? 66 : 30, 24, 280, 34), Money(e.Money), big);
             double inc = sim.EstIncomePerSec();
-            GUI.Label(new Rect(30, 62, 300, 20), "Income  <color=#6BE08A>" + Money(inc) + "</color> <color=#8A98B0>/sec</color>", mid);
+            string incLine = inc > 0
+                ? "Income  <color=#6BE08A>" + Money(inc) + "</color> <color=#8A98B0>/sec</color>"
+                : "<color=#8A98B0>Manual — hire staff to automate</color>";
+            GUI.Label(new Rect(30, 62, 300, 20), incLine, mid);
             GUI.Label(new Rect(30, 84, 300, 20),
                 "Served <color=#CFE0FF>" + e.CustomersServed + "</color>   Lost <color=#E88A8A>" + e.LostSales + "</color>   Queue <color=#CFE0FF>" + sim.Checkout.LineCount + "</color>", small);
             int mc = Milestones.Completed(e.CustomersServed, e.TotalEarned);

@@ -37,6 +37,7 @@ namespace IdleSim
         {
             var sim = Sim.Instance;
             if (sim == null) return;
+            if (GalaxyMap.MapOpen || Franchise.PanelOpen) return;   // hide world badges behind a modal
             if (!ready) Setup();
             if (cam == null) cam = Camera.main;
             if (cam == null) return;

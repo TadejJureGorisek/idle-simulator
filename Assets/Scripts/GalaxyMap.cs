@@ -9,6 +9,7 @@ namespace IdleSim
     public class GalaxyMap : MonoBehaviour
     {
         bool open, ready;
+        public static bool MapOpen;   // true while the map is the active modal
         string sel = "warehouse";
         GUIStyle title, body, btn, box, node, ctr;
         Texture2D line;
@@ -41,13 +42,20 @@ namespace IdleSim
         void OnGUI()
         {
             var sim = Sim.Instance; var e = Economy.Instance;
-            if (sim == null || e == null || sim.Editing) return;
+            if (sim == null || e == null) return;
+            if (sim.Editing || Franchise.PanelOpen) { MapOpen = false; return; }   // hidden in edit / when franchise is the modal
             if (!ready) Setup();
 
+            float W = Screen.width, H = Screen.height;
+            if (open)   // dim backdrop FIRST so the toggle button below stays bright on top
+            {
+                var dimc = GUI.color; GUI.color = new Color(0f, 0f, 0f, 0.5f);
+                GUI.DrawTexture(new Rect(0, 0, W, H), line); GUI.color = dimc;
+            }
             if (GUI.Button(new Rect(12, Screen.height - 76, 220, 30), open ? "CLOSE MAP" : "GALAXY MAP", btn)) open = !open;
+            MapOpen = open;
             if (!open) return;
 
-            float W = Screen.width, H = Screen.height;
             GUI.Box(new Rect(W * 0.5f - 470, 40, 940, H - 120), GUIContent.none, box);
             GUI.Label(new Rect(W * 0.5f - 446, 54, 800, 26), "GALAXY MAP   ·   supply network", title);
             if (GUI.Button(new Rect(W * 0.5f + 392, 50, 70, 28), "Close", btn)) { open = false; return; }
@@ -69,7 +77,7 @@ namespace IdleSim
             var hr = new Rect(store.x - 74, store.y - 34, 148, 68);
             GUI.Box(hr, GUIContent.none, box);
             GUI.Label(new Rect(hr.x, hr.y + 12, hr.width, 20), "MAIN STORE", ctr);
-            GUI.Label(new Rect(hr.x, hr.y + 34, hr.width, 18), "<color=#8A98B0>the hub</color>", ctr);
+            GUI.Label(new Rect(hr.x, hr.y + 34, hr.width, 18), "<color=#6BE08A>" + Economy.Fmt(sim.EstIncomePerSec()) + "/s</color>", ctr);
 
             // location nodes
             for (int i = 0; i < locs.Count; i++)
@@ -88,7 +96,8 @@ namespace IdleSim
             GUI.Box(dr, GUIContent.none, box);
             var sd = Locations.ById(sel); int sl = sim.LocLev(sd.id);
             GUI.Label(new Rect(dr.x + 18, dr.y + 12, dr.width - 36, 20), "<b>" + sd.name + "</b>   <color=#8A98B0>" + sd.effect + " / level</color>", body);
-            GUI.Label(new Rect(dr.x + 18, dr.y + 36, dr.width - 200, 20), "Level <color=#CFE0FF>" + sl + "</color>", body);
+            string now = sl > 0 ? "    now <color=#6BE08A>" + sim.LocBonusText(sd.id) + "</color>" : "";
+            GUI.Label(new Rect(dr.x + 18, dr.y + 36, dr.width - 36, 20), "Level <color=#CFE0FF>" + sl + "</color>" + now, body);
             double cost = sim.LocCost(sd.id);
             if (!sim.LocUnlocked(sd.id))
             {

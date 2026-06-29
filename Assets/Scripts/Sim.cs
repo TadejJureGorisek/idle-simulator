@@ -262,6 +262,19 @@ namespace IdleSim
         public float SupplyCostFactor => Mathf.Pow(0.92f, LocLev("warehouse"));   // warehouse: -8% cost of goods / level
         public float SpoilFactor => Mathf.Pow(0.80f, LocLev("farm"));             // farm: -20% spoilage / level
         public double LocationMult => (1.0 + 0.12 * LocLev("fabricator")) * (1.0 + 0.15 * LocLev("reactor")) * (1.0 + 0.25 * LocLev("hypermarket"));
+        public string LocBonusText(string id)   // current total effect, for the Galaxy Map
+        {
+            int lv = LocLev(id);
+            switch (id)
+            {
+                case "warehouse": return "-" + Mathf.RoundToInt((1f - SupplyCostFactor) * 100f) + "% cost of goods";
+                case "farm": return "-" + Mathf.RoundToInt((1f - SpoilFactor) * 100f) + "% spoilage";
+                case "fabricator": return "+" + (lv * 12) + "% income";
+                case "reactor": return "+" + (lv * 15) + "% income";
+                case "hypermarket": return "+" + (lv * 25) + "% income";
+            }
+            return "";
+        }
 
         public double EffMargin(string id) { var s = Sections.ById(id); return s.sell - s.cost * SupplyCostFactor; }
         public double MilestoneMult => Economy.Instance != null ? Milestones.Mult(Economy.Instance.CustomersServed, Economy.Instance.TotalEarned) : 1.0;

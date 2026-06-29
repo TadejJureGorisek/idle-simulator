@@ -128,6 +128,10 @@ I cannot compile-test inside an open editor or drive Play mode. Two real options
   `*.ps1`) — a standalone mock with made-up rects hides real layout/overflow bugs.
 - **New `.cs` files need their `.meta`** committed — Unity generates `.meta` on import / batch compile. Commit
   the `.meta` alongside the script so GUIDs are tracked.
+- **Modal screens** set static flags `GalaxyMap.MapOpen` / `Franchise.PanelOpen` (mutually exclusive). Every
+  other OnGUI component (`HUD`, `StoreEditor`, `WorldIcons`) returns early when either is true, and each modal
+  draws a dim backdrop. A new full-screen panel must do the same or it'll show *through* the others' translucent
+  overlays.
 
 ## AI asset generation + shared library (same rules as the other projects)
 Backgrounds/art are generated with **Higgsfield** (e.g. `bg_space_nebula.png` in `Assets/Art/`, runtime copy

@@ -289,6 +289,7 @@ namespace IdleSim
         void OnGUI()
         {
             if (Sim.Instance == null) return;
+            if (GalaxyMap.MapOpen || Franchise.PanelOpen) return;   // hide the + / catalog behind a modal
             UISkin.EnsureApplied();
             if (!ready) Setup();
 
