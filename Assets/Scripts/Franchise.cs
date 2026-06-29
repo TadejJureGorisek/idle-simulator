@@ -104,6 +104,7 @@ namespace IdleSim
         void OnGUI()
         {
             if (Economy.Instance == null || Sim.Instance == null || Sim.Instance.Editing) return;
+            UISkin.EnsureApplied();
             if (!ready) Setup();
 
             // small always-on toggle, bottom-left

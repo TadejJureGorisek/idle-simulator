@@ -179,41 +179,47 @@ namespace IdleSim
         {
             var sim = Sim.Instance; var e = Economy.Instance;
             if (sim == null || e == null) return;
-            const float x = 10f, y = 110f, w = 268f, h = 420f;
-            GUI.Box(new Rect(x - 4, y - 4, w + 8, h + 8), GUIContent.none, box);
-            GUI.Label(new Rect(x, y, w, 20), "CATALOG", label);
+            const float bx = 8f, by = 104f, bw = 278f, bh = 446f, pad = 16f;
+            float cxc = bx + pad, cwc = bw - pad * 2f;       // content inset inside the neon frame
+            GUI.Box(new Rect(bx, by, bw, bh), GUIContent.none, box);
+            float yy = by + pad;
+            GUI.Label(new Rect(cxc, yy, cwc, 20), "CATALOG", label); yy += 24f;
 
             // brush section: cycles unlocked sections; tints new shelves AND the floor paint
             var act = Sections.ById(sim.ActiveSection);
             var prevC = GUI.color; GUI.color = act.color;
-            if (GUI.Button(new Rect(x, y + 22, w - 8, 24), "Section: " + act.name + "   >>", btn)) sim.CycleActiveSection();
-            GUI.color = prevC;
+            if (GUI.Button(new Rect(cxc, yy, cwc, 26), "Section: " + act.name + "   >>", btn)) sim.CycleActiveSection();
+            GUI.color = prevC; yy += 30f;
 
             // tool: Move (drag fixtures) / Paint floor / Erase floor
             string tname = tool == 0 ? "Move" : tool == 1 ? "Paint floor" : "Erase floor";
-            if (GUI.Button(new Rect(x, y + 50, w - 8, 24), "Tool: " + tname + "   (tap)", btn)) tool = (tool + 1) % 3;
+            if (GUI.Button(new Rect(cxc, yy, cwc, 26), "Tool: " + tname + "   (tap)", btn)) tool = (tool + 1) % 3;
+            yy += 30f;
 
             if (sim.UnlockedItems < Catalog.Items.Count)
             {
                 double uc = UnlockCost();
                 var next = Catalog.Items[sim.UnlockedItems];
                 GUI.enabled = e.Money >= uc;
-                if (GUI.Button(new Rect(x, y + 78, w - 8, 26), "Unlock: " + next.name + "    " + Economy.Fmt(uc), btn) && e.TrySpend(uc))
+                if (GUI.Button(new Rect(cxc, yy, cwc, 26), "Unlock: " + next.name + "   <color=#FFD24A>" + Economy.Fmt(uc) + "</color>", btn) && e.TrySpend(uc))
                 { sim.UnlockedItems++; sim.SaveLayout(); }
                 GUI.enabled = true;
             }
-            else GUI.Label(new Rect(x, y + 80, w, 20), "All items unlocked.", label);
+            else GUI.Label(new Rect(cxc, yy, cwc, 20), "All items unlocked.", label);
+            yy += 32f;
 
             int cnt = Mathf.Min(sim.UnlockedItems, Catalog.Items.Count);
-            var view = new Rect(x, y + 108, w, h - 108);
-            var content = new Rect(0, 0, w - 20, cnt * 30);
+            var view = new Rect(cxc, yy, cwc, by + bh - pad - yy);
+            var content = new Rect(0, 0, cwc - 18, cnt * 32);
             catScroll = GUI.BeginScrollView(view, catScroll, content);
             for (int i = 0; i < cnt; i++)
             {
                 var it = Catalog.Items[i];
-                string lbl = it.kind == ItemKind.Stand ? it.name + "    " + Economy.Fmt(StandCost(it)) : it.name + "    (decor)";
+                string lbl = it.kind == ItemKind.Stand
+                    ? "<b>" + it.name + "</b>   <color=#FFD24A>" + Economy.Fmt(StandCost(it)) + "</color>"
+                    : "<b>" + it.name + "</b>   <color=#8A98B0>(decor)</color>";
                 GUI.enabled = it.kind == ItemKind.Decor || e.Money >= StandCost(it);
-                if (GUI.Button(new Rect(0, i * 30, w - 20, 28), lbl, btn)) PlaceItem(it);
+                if (GUI.Button(new Rect(0, i * 32, cwc - 18, 28), lbl, btn)) PlaceItem(it);
                 GUI.enabled = true;
             }
             GUI.EndScrollView();
@@ -259,7 +265,7 @@ namespace IdleSim
             if (Editing && ToolbarRect().Contains(m)) return true;
             if (new Rect(8, 8, 344, 150).Contains(m)) return true;                  // HUD money panel
             if (new Rect(Screen.width - 290, 0, 290, 760).Contains(m)) return true;  // HUD upgrades + sections panel
-            if (Editing && new Rect(6, 106, 274, 428).Contains(m)) return true;      // catalog panel
+            if (Editing && new Rect(6, 102, 282, 450).Contains(m)) return true;      // catalog panel
             return false;
         }
 
@@ -283,6 +289,7 @@ namespace IdleSim
         void OnGUI()
         {
             if (Sim.Instance == null) return;
+            UISkin.EnsureApplied();
             if (!ready) Setup();
 
             if (GUI.Button(PlusRect(), Editing ? "✕" : "+", round)) Toggle();

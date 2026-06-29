@@ -32,6 +32,18 @@ namespace IdleSim
             return All[0]; // fall back to "common"
         }
 
+        // Short display name for the tight HUD section rows (the full name is used elsewhere).
+        public static string Short(string id)
+        {
+            switch (id)
+            {
+                case "veg": return "Produce";
+                case "refrigerated": return "Cold";
+                case "electronics": return "Tech";
+                default: return ById(id).name;   // Common / Pantry / Sweets are already short
+            }
+        }
+
         // Order = unlock progression (common first, then cheap -> premium).
         static List<Section> Build() => new List<Section>
         {
