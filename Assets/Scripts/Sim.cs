@@ -111,11 +111,13 @@ namespace IdleSim
             Upgrades.Add(new Upgrade("cashier", "Hire Cashier", 200, 1.12f, () => { Cashiers++; RecalcRates(); }));
             Upgrades.Add(new Upgrade("restocker", "Hire Restocker", 400, 1.12f, () => { Restockers++; RecalcRates(); }));
             Upgrades.Add(new Upgrade("fastco", "Faster Checkout", 600, 1.12f, () => { checkoutSpeedSteps++; RecalcRates(); }));
-            Upgrades.Add(new Upgrade("manager", "Hire Manager", 2500, 1.15f, () => { Managers++; IncomeMult = 1.0 + 0.25 * Managers; }));
+            Upgrades.Add(new Upgrade("manager", "Hire Manager", 2500, 1.5f, () => { Managers++; IncomeMult = 1.0 + 0.20 * Managers; }, 12)); // finite global x (caps at +240%) so it can't run away
             Upgrades.Add(new Upgrade("ads", "Advertising", 3000, 1.13f, () => { adSteps++; RecalcRates(); }));
             Upgrades.Add(new Upgrade("cleaner", "Hire Cleaner", 350, 1.20f, () => { Cleaners++; }));
             Upgrades.Add(new Upgrade("shift", "Longer Shift +2h", 500, 1.45f, () => { ShiftHours = Mathf.Min(24f, ShiftHours + 2f); }, 8));
             Upgrades.Add(new Upgrade("autoday", "AUTO NEW DAY", 250000, 1f, () => { AutoNewDay = true; }, 1));
+            Upgrades.Add(new Upgrade("warehouse", "Build Warehouse", 3000000, 1f, () => { WarehouseBuilt = true; }, 1)); // first connected location
+            Upgrades.Add(new Upgrade("supply", "Supply Line  (-8% goods)", 200000, 1.3f, () => { SupplyLevel++; })); // raises margins; needs the warehouse
         }
 
         public void RecalcRates()
@@ -215,6 +217,7 @@ namespace IdleSim
         {
             if (u.IsMaxed) return false;
             if (u.Id == "autoday" && !Is247) return false; // unlocks only at 24/7
+            if (u.Id == "supply" && !WarehouseBuilt) return false; // needs the warehouse first
             if (Economy.Instance.TrySpend(u.CurrentCost))
             {
                 u.Level++;
@@ -241,9 +244,19 @@ namespace IdleSim
         // ---- section investment / value ----
         public int GetSectionLevel(string id) => SectionLevel.TryGetValue(id, out var l) ? l : 0;
         public double SectionMult(string id) => System.Math.Pow(1.15, GetSectionLevel(id)); // level investment multiplier
-        // $ a single item of this section yields: its own margin (sell - cost), scaled by level + global mults
-        public double ItemValue(string id) => Sections.ById(id).margin * SectionMult(id) * IncomeMult * Franchise.Mult;
-        public double SectionUpgradeCost(string id) => Sections.ById(id).upgradeBase * System.Math.Pow(1.15, GetSectionLevel(id));
+
+        // --- connected location: Warehouse supply line lowers cost-of-goods across every section ---
+        [System.NonSerialized] public bool WarehouseBuilt;
+        [System.NonSerialized] public int SupplyLevel;
+        public float SupplyCostFactor => WarehouseBuilt ? Mathf.Pow(0.92f, SupplyLevel) : 1f; // each supply level -8% cost of goods
+        public double EffMargin(string id) { var s = Sections.ById(id); return s.sell - s.cost * SupplyCostFactor; }
+
+        // global income multiplier from completed achievement milestones
+        public double MilestoneMult => Economy.Instance != null ? Milestones.Mult(Economy.Instance.CustomersServed, Economy.Instance.TotalEarned) : 1.0;
+
+        // $ a single item yields: effective margin x section level x manager x franchise x milestone mults
+        public double ItemValue(string id) => EffMargin(id) * SectionMult(id) * IncomeMult * Franchise.Mult * MilestoneMult;
+        public double SectionUpgradeCost(string id) => Sections.ById(id).upgradeBase * System.Math.Pow(1.35, GetSectionLevel(id)); // cost grows faster than the x1.15 value boost -> the curve stretches to days, not minutes
 
         public bool UpgradeSection(string id)
         {

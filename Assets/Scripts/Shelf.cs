@@ -31,7 +31,7 @@ namespace IdleSim
         {
             int need = Capacity - Stock;
             if (need <= 0) return;
-            int cost = Mathf.Max(1, Mathf.CeilToInt((float)Sections.ById(section).cost)); // per-section cost of goods
+            int cost = Mathf.Max(1, Mathf.CeilToInt((float)(Sections.ById(section).cost * Sim.Instance.SupplyCostFactor))); // per-section cost of goods (warehouse supply discount applies)
             int canAfford = (int)(Economy.Instance.Money / cost);
             int units = Mathf.Min(need, canAfford);
             if (units <= 0) return;

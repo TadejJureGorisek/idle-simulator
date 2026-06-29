@@ -70,15 +70,17 @@ namespace IdleSim
             if (e == null || sim == null) return;
 
             // money / stats panel (content inset ~20px so it clears the neon frame)
-            GUI.Box(new Rect(10, 10, 344, 116), GUIContent.none);
+            GUI.Box(new Rect(10, 10, 344, 138), GUIContent.none);
             if (coinIcon != null) GUI.DrawTexture(new Rect(30, 26, 30, 30), coinIcon, ScaleMode.ScaleToFit);
             GUI.Label(new Rect(coinIcon != null ? 66 : 30, 24, 280, 34), Money(e.Money), big);
             double inc = sim.EstIncomePerSec();
             GUI.Label(new Rect(30, 62, 300, 20), "Income  <color=#6BE08A>" + Money(inc) + "</color> <color=#8A98B0>/sec</color>", mid);
             GUI.Label(new Rect(30, 84, 300, 20),
                 "Served <color=#CFE0FF>" + e.CustomersServed + "</color>   Lost <color=#E88A8A>" + e.LostSales + "</color>   Queue <color=#CFE0FF>" + sim.Checkout.LineCount + "</color>", small);
+            int mc = Milestones.Completed(e.CustomersServed, e.TotalEarned);
+            GUI.Label(new Rect(30, 106, 300, 20), "Milestones  <color=#FFD24A>+" + (int)(mc * Milestones.PerMilestone * 100) + "%</color>  <color=#8A98B0>(" + mc + "/" + Milestones.Total + ")</color>", small);
 
-            GUI.Label(new Rect(12, 114, 460, 36),
+            GUI.Label(new Rect(12, 154, 470, 36),
                 "Click a customer at the till (or SPACE) to ring up   •   click a shelf (or R) to restock", small);
 
             // clock / day panel (top centre)
@@ -115,7 +117,8 @@ namespace IdleSim
             bool firstUp = true;
             foreach (var u in sim.Upgrades)
             {
-                if (u.Id == "autoday" && !sim.Is247) continue; // extreme upgrade hidden until 24/7
+                if (u.Id == "autoday" && !sim.Is247) continue;   // extreme upgrade hidden until 24/7
+                if (u.Id == "supply" && !sim.WarehouseBuilt) continue; // supply line appears once the warehouse is built
                 string label = u.IsMaxed
                     ? "<b>" + u.Name + "</b>   <color=#8A98B0>(MAX)</color>"
                     : "<b>" + u.Name + "</b>  <color=#8A98B0>Lv " + u.Level + "</color>\n<color=#FFD24A>" + Money(u.CurrentCost) + "</color>";
