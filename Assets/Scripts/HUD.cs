@@ -95,10 +95,14 @@ namespace IdleSim
             GUI.Label(new Rect(cx - 34, 80, 68, 26), sim.GameSpeed.ToString("0.##") + "x", ctr);
             if (GUI.Button(new Rect(cx + 34, 82, 34, 24), "+", btn)) sim.SpeedUp();
 
-            if (!sim.IsOpen)
+            if (sim.IsOpen)
             {
-                if (GUI.Button(new Rect(cx - 70, 116, 140, 32), "NEW DAY")) sim.NewDay();
-                GUI.Label(new Rect(cx - 120, 152, 240, 20), "Click trash to clean for +$" + sim.CleanReward + " each", small);
+                if (GUI.Button(new Rect(cx - 70, 114, 140, 28), "End Day  >>")) sim.FinishDay();
+            }
+            else
+            {
+                if (GUI.Button(new Rect(cx - 70, 114, 140, 30), "NEW DAY")) sim.NewDay();
+                GUI.Label(new Rect(cx - 120, 150, 240, 20), "Click trash to clean for +$" + sim.CleanReward + " each", small);
             }
 
             // upgrades + sections panel (right). Content is inset by `pad` so it stays INSIDE the

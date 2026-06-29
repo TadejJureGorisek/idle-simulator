@@ -549,6 +549,17 @@ namespace IdleSim
             if (Door != null) Door.SetOpen(true);
         }
 
+        // Finish the open shift instantly: grant the income you'd have earned over the rest of the
+        // shift, then close (CloseShop auto-starts the next day if AUTO NEW DAY is on).
+        public void FinishDay()
+        {
+            if (State != DayState.Open) { NewDay(); return; }
+            float perSec = ShiftHours / Mathf.Max(1f, ShiftRealSeconds);     // game-hours per real second
+            float remainingRealSec = Mathf.Max(0f, CloseTime - Clock) / Mathf.Max(0.0001f, perSec);
+            if (Economy.Instance != null) Economy.Instance.Add(EstIncomePerSec() * remainingRealSec);
+            CloseShop();
+        }
+
         public void RecordServedToday() { servedToday++; }
 
         void SpawnMess(int n)
